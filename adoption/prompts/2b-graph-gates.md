@@ -45,9 +45,19 @@ performed: an unchanged tree legitimately replays a passing verdict, which
 is exactly how five phases of orchestration once ran fully "verified"
 around a pipeline that had never carried cargo.
 
+Also in this phase: **plan-declarable red→green enforcement.** A plan may
+declare on any producer node a red→green requirement naming its test; the
+orchestrator then requires that node's evidence chain to contain a failing
+verify citing the named test *before* the passing one, and rejects
+completion otherwise. Prompt prose alone was proven insufficient — a
+producer once skipped the failing-test step entirely — so this is the
+mechanism form, checked by the orchestrator, not requested of the agent.
+Prompt 3 declares it on its producer.
+
 Gate: unit tests — join produces real merge commits; an empty-cargo run is
 *rejected* by the content assertion (build this test first; it is the whole
-point). Paste. Commit. STOP.
+point); a red→green-declared node whose evidence lacks the
+fail-citing-the-named-test-then-pass pair is rejected. Paste. Commit. STOP.
 
 ## Phase 2 — Adversarial verifier with no agent-reachable bypass
 
@@ -97,9 +107,13 @@ A stub-runner **two-node hello-world fan-out** with disjoint declared write
 scopes, run end to end, then:
 
 1. `python3 ../taniko/conformance/loglint.py <run>/routing.jsonl
-   --evidence-dir <run>` passes — including G8, with its denominators
-   ("N resolved", N > 0; a gate with zero evidence citations is vacuously
-   green and does not count).
+   --evidence-dir <run>` passes, including G8 evidence resolution. The
+   pinned lint does not yet print G8's denominator, so supply it yourself:
+   count the distinct `verify_ref`s in the log that resolve in
+   `<run>/verify-results/` and paste the count — it must be greater than
+   zero. A lint pass resting on zero citations is vacuously green and does
+   not count. (A future lint will print "N resolved" itself; until then
+   the adopter states the denominator.)
 2. The evidence directory matches EVIDENCE-LAYOUT (paste the tree).
 3. The real repository contains **zero** run directories leaked by the test
    suite (paste the check).

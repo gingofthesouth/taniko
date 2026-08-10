@@ -6,11 +6,16 @@ passed, and the machinery has only ever run stubs. This prompt puts one real
 bug through it. The goal is not the fix — it is evidence that the machinery
 produces adversarially-tested fixes under its own rules.
 
-Historical calibration: the first adapter attempted six launches. Four
-halted in pre-flight, one ran and shipped a real, adversarially-tested bug
-fix, and one correctly never launched because the bug was already fixed.
-**Four pre-flight halts, zero improvised workarounds** — that record is the
-standard. A halt is a success of the fences, not a failure of the run.
+Historical calibration: the first adapter attempted six launches. Three
+halted in pre-flight. One ran and failed *legibly* — it died on a contract
+violation, and three secondary bugs were diagnosed from the routing log
+alone; that failure hardened the machinery for the run that followed. One
+ran and shipped a real, adversarially-tested bug fix. And one correctly
+never launched, because the bug was already fixed — the fourth pre-flight
+catch, by prevention. **Three halts, one legible failure, one shipped fix,
+one launch prevented; zero improvised workarounds** — that record is the
+standard. A halt is a success of the fences, and a legible failure is a
+success of the evidence; neither is a failure of the run.
 
 ## Fill in before issuing (the human does this)
 
@@ -21,6 +26,10 @@ standard. A halt is a success of the fences, not a failure of the run.
 - `PRODUCER_SCOPE` / `VERIFIER_SCOPE`: declared write scopes. The verifier's
   is test directories only. If the test mirror doesn't exist yet, its
   creation is explicitly inside `PRODUCER_SCOPE`.
+- `RED_GREEN`: the red→green declaration on the producer node (the
+  mechanism built in Prompt 2b Phase 1) naming the test in `TEST_MIRROR`
+  whose failing-then-passing verify pair the orchestrator must find in the
+  evidence chain.
 - Budgets: producer attempts, verifier attempts (2 was the measured
   starting point), per-node timeouts (warm the build as orchestrator
   pre-work first — a cold build is deterministic work and must never spend
@@ -67,11 +76,12 @@ Paste all eight results. STOP for human confirmation before launching.
 
 ## The run
 
-- **Producer**: red→green, enforced evidentially — the run's evidence chain
-  must contain a failing verify citing the new test *before* the passing
-  one. The orchestrator checks for the fail-then-pass pair; prompt prose
-  alone was proven insufficient (a producer once skipped the failing-test
-  step entirely). The failing verify is recorded evidence, not a discarded
+- **Producer**: red→green, enforced by the `RED_GREEN` declaration — the
+  orchestrator (mechanism from Prompt 2b Phase 1) requires the evidence
+  chain to contain a failing verify citing the declared test *before* the
+  passing one, and rejects completion otherwise; prompt prose alone was
+  proven insufficient (a producer once skipped the failing-test step
+  entirely). The failing verify is recorded evidence, not a discarded
   intermediate.
 - **Verifier**: adversarial, write scope limited to test directories,
   bounded attempts, and its contribution proven by executed-count evidence
