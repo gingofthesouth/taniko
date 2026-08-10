@@ -1,0 +1,313 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:taniko:schema:verify-result:0.4.0",
+  "title": "Verify Result",
+  "description": "The evidence envelope, scoped to one verify PIPELINE RUN (changed in 0.2.0; was per-tier). One record summarizes all stages run under a profile and carries the overall verdict \u2014 this is the unit progress items cite (evidence_ref) and routing records cite (verify_ref). Verdict enum is exactly pass|fail|error; model confidence is deliberately not a member. A record may be a cached replay: an unchanged working tree deterministically yields the same verdict, so replaying it is legitimate evidence \u2014 legitimacy that rests entirely on the determinism requirement (flaky stages poison replay validity). Feedback fields are hard-bounded because they are re-injected into model context on retry.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "verdict",
+    "profile",
+    "stages",
+    "attempt",
+    "started_at",
+    "duration_ms",
+    "exit_code"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "node_id": {
+      "type": "string",
+      "description": "Graph node that requested verification, when under a graph."
+    },
+    "target": {
+      "type": "string",
+      "maxLength": 300,
+      "description": "What was verified: a task id, module, or 'working tree'."
+    },
+    "verdict": {
+      "enum": [
+        "pass",
+        "fail",
+        "error"
+      ],
+      "description": "pass: every executed stage passed. fail: a stage failed deterministically on the code. error: the pipeline itself broke (tool missing, no result bundle, precondition failure) \u2014 an error is a harness/loop bug to fix and never counts as pass."
+    },
+    "profile": {
+      "type": "string",
+      "description": "Which declared profile ran. 'full' is reserved and means all tiers. Only a full-profile pass satisfies a progress item's evidence_ref for status=done; a quick pass is real but partial evidence and must never masquerade as full (cache keys include the profile for exactly this reason)."
+    },
+    "stages": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Every stage the pipeline executed (or deliberately skipped), in execution order. Fail-fast means the array ends at the first failure.",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "cost_class",
+          "verdict",
+          "duration_ms"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "cost_class": {
+            "enum": [
+              "static",
+              "build",
+              "unit",
+              "integration",
+              "ui",
+              "expensive"
+            ]
+          },
+          "verdict": {
+            "enum": [
+              "pass",
+              "fail",
+              "error",
+              "skipped"
+            ],
+            "description": "skipped is legal only for tiers declared skippable (e.g. a targeted-test tier with no mapped targets) and counts as pass for ordering purposes."
+          },
+          "duration_ms": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "detail": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "Compact qualifier, e.g. '0 violations', '213/214'."
+          },
+          "counts": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "tests_run": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "passed": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "failed": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "skipped": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "flaky_passed": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "description": "Test identifiers that failed, were rerun under the tier's declared flaky_reruns policy, and passed. Disclosure here is mandatory whenever a retry rescued the verdict \u2014 a flaky pass is reported, never hidden. Undeclared retries and undisclosed flaky passes are contract violations."
+          },
+          "selection": {
+            "enum": [
+              "all",
+              "targeted"
+            ],
+            "description": "Optional. Whether this stage ran its full applicable set or an adapter-selected subset (e.g. changed-file-mapped test classes). cost_class stays a pure cost label; selection carries the role distinction the 'targeted tier' strain finding asked for. Added in 0.4.0."
+          }
+        }
+      }
+    },
+    "failed_stage": {
+      "type": "string",
+      "description": "Stage id whose failure produced the fail verdict. Required when verdict=fail."
+    },
+    "feedback": {
+      "type": "object",
+      "description": "The failing stage's distilled feedback, designed for model re-injection: bounded, specific, tail-of-traceback not head.",
+      "required": [
+        "summary"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "summary": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "details": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "locations": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "required": [
+              "file",
+              "message"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "file": {
+                "type": "string"
+              },
+              "line": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "column": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "message": {
+                "type": "string",
+                "maxLength": 300
+              }
+            }
+          }
+        },
+        "raw_refs": {
+          "type": "array",
+          "maxItems": 5,
+          "items": {
+            "type": "string"
+          },
+          "description": "State-dir-relative paths to full logs / result bundles for the rare case the summary isn't enough. Paths only \u2014 never inline raw log content here."
+        }
+      }
+    },
+    "cache": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "replayed"
+      ],
+      "description": "Verdict-cache provenance. Structurally this is the observation-cache pattern applied to verify itself: tool = verify+profile, single synthetic input = the working-tree content hash.",
+      "properties": {
+        "replayed": {
+          "type": "boolean",
+          "description": "True when this record is a cached verdict served for an unchanged tree rather than a fresh run."
+        },
+        "tree_hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "Content hash of the working tree this verdict is keyed by (e.g. HEAD + tracked diff + untracked file contents; gitignored noise excluded)."
+        },
+        "recorded_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the underlying fresh run happened. For replays, started_at is the replay time and this is the original."
+        }
+      }
+    },
+    "attempt": {
+      "type": "object",
+      "required": [
+        "number",
+        "max_total"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "number": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_total": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "exhausted": {
+          "type": "boolean",
+          "default": false,
+          "description": "True when this failure consumed the last budgeted attempt. Exhaustion MUST surface as explicit failure with accumulated evidence \u2014 never silence or a softened success claim."
+        }
+      }
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Actual wall-clock start of this verification. Placeholder or fabricated timestamps are a contract violation even though format validation cannot catch them; the routing-log grammar lint enforces plausibility (a cited document's started_at must fall within the citing run's window)."
+    },
+    "duration_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "exit_code": {
+      "type": "integer"
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "attempts_used_total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cost_used_usd": {
+          "type": "number",
+          "minimum": 0
+        },
+        "cost_max_usd": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "wall_clock_used_seconds": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "mode": {
+      "enum": [
+        "real",
+        "demo",
+        "stub"
+      ],
+      "default": "real",
+      "description": "Attestation mode. real: a genuine verification of the target. demo/stub: produced by a test or demo seam and MUST self-identify as such \u2014 a non-real document never satisfies done-evidence, regardless of verdict or profile. Added in 0.4.0 after a demo stub emitted profile='full' with fabricated timestamps and validated cleanly: evidence must attest to its own completeness and provenance."
+    },
+    "profile_tiers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "description": "Tier ids this profile comprises, self-declared. Lets a consumer check the stages array against the claimed profile without access to the harness declaration, and lets conformance cross-check both against the declaration. Strongly recommended for all documents; a 'full' document whose stages omit a listed tier (other than legal skips) is dishonest. Added in 0.4.0 (the profile-linkage gap, weaponized)."
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "verdict": {
+            "const": "fail"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "failed_stage",
+          "feedback"
+        ]
+      }
+    }
+  ]
+}

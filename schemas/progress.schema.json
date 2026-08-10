@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:taniko:schema:progress:0.4.0",
+  "title": "Progress Record",
+  "description": "Cross-turn session state: what has been done, what remains, what was decided, and the checkpoints that make rollback possible. Lives in the harness state dir (gitignored, never committed). One progress file per node scope: the root task has one, and each sub-agent branch has its own, so parallel branches never share mutable state. Purpose: a resumed or handed-off session reconstructs where it is by reading this file, not by re-deriving history through the model.",
+  "type": "object",
+  "required": ["schema_version", "session_id", "task", "updated_at", "items"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "session_id": { "type": "string", "minLength": 1 },
+    "run_id": { "type": "string", "description": "Graph run this session belongs to, when running under a graph. Joins this file to routing records." },
+    "node_id": {
+      "type": ["string", "null"],
+      "description": "Graph node whose scope this progress belongs to; null for the root task."
+    },
+    "task": {
+      "type": "object",
+      "required": ["id", "title"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string", "maxLength": 200 },
+        "description": { "type": "string", "maxLength": 2000 }
+      }
+    },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "phase": { "type": "string", "maxLength": 100, "description": "Free-form current phase label, e.g. 'implementing', 'verifying', 'awaiting-review'." },
+    "items": {
+      "type": "array",
+      "description": "The work breakdown. Status transitions are append-only in spirit: done items keep their evidence_ref forever so completion claims stay auditable.",
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "status"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string", "maxLength": 300 },
+          "status": { "enum": ["pending", "in_progress", "done", "blocked", "abandoned"] },
+          "evidence_ref": {
+            "type": "string",
+            "description": "Id or path of the verify-result that justifies status=done. The contract point: 'done' without evidence is a claim, not a fact. Conformance tooling may warn on done-without-evidence."
+          },
+          "checkpoint": { "$ref": "#/$defs/checkpoint" },
+          "blocked_on": { "type": "string", "maxLength": 500, "description": "Required when status=blocked: what is missing and who/what unblocks it." },
+          "notes": { "type": "string", "maxLength": 1000 }
+        }
+      }
+    },
+    "decisions": {
+      "type": "array",
+      "description": "Decisions made during the session that a future session must not silently re-litigate.",
+      "items": {
+        "type": "object",
+        "required": ["id", "at", "decision"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "at": { "type": "string", "format": "date-time" },
+          "decision": { "type": "string", "maxLength": 500 },
+          "rationale": { "type": "string", "maxLength": 1000 }
+        }
+      }
+    },
+    "learned": {
+      "type": "array",
+      "description": "Repo facts worth keeping across sessions that are not task decisions: a flaky test, a surprising coupling, a tool quirk. This is the raw material of the ratchet — facts that stabilize should graduate out of gitignored memory into committed instructions or a skill, at which point they are removed from here.",
+      "items": {
+        "type": "object",
+        "required": ["fact"],
+        "additionalProperties": false,
+        "properties": {
+          "at": { "type": "string", "format": "date-time" },
+          "fact": { "type": "string", "maxLength": 500 },
+          "evidence_ref": { "type": "string", "description": "Verify-result or log that demonstrated the fact, when one exists." }
+        }
+      }
+    },
+    "last_checkpoint": { "$ref": "#/$defs/checkpoint" }
+  },
+  "$defs": {
+    "checkpoint": {
+      "type": "object",
+      "required": ["id", "git_ref"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "git_ref": { "type": "string", "description": "Commit SHA, stash ref, or branch the harness can restore to." },
+        "created_at": { "type": "string", "format": "date-time" },
+        "description": { "type": "string", "maxLength": 300 }
+      }
+    }
+  }
+}

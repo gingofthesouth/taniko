@@ -1,0 +1,98 @@
+{
+  "schema_version": "0.4.0",
+  "id": "vr_00914",
+  "run_id": "run_0042",
+  "node_id": "code_writer_auth",
+  "target": "T-118 / KeychainStore migration",
+  "verdict": "fail",
+  "profile": "full",
+  "stages": [
+    {
+      "id": "lint",
+      "cost_class": "static",
+      "verdict": "pass",
+      "duration_ms": 1100,
+      "detail": "0 violations"
+    },
+    {
+      "id": "build",
+      "cost_class": "build",
+      "verdict": "pass",
+      "duration_ms": 8400
+    },
+    {
+      "id": "targeted",
+      "cost_class": "unit",
+      "verdict": "pass",
+      "duration_ms": 9200,
+      "detail": "6/6",
+      "counts": {
+        "tests_run": 6,
+        "passed": 6,
+        "failed": 0,
+        "skipped": 0
+      },
+      "selection": "targeted"
+    },
+    {
+      "id": "unit",
+      "cost_class": "unit",
+      "verdict": "fail",
+      "duration_ms": 61200,
+      "detail": "213/214",
+      "counts": {
+        "tests_run": 214,
+        "passed": 213,
+        "failed": 1,
+        "skipped": 0
+      },
+      "flaky_passed": [
+        "AppTests/SyncQueueTests/testDrainUnderLoad"
+      ]
+    }
+  ],
+  "failed_stage": "unit",
+  "feedback": {
+    "summary": "1 of 214 tests failed: testMigrationPreservesRefreshToken asserts the refresh token survives migration, but migrate() only copies the access token.",
+    "details": "XCTAssertEqual failed: (\"nil\") is not equal to (\"Optional(\\\"rt_9f2\\\")\")\nAuthMigrationTests.swift:47\nmigrate() at TokenMigrator.swift:31 copies accessToken but never reads legacy key 'refresh_token'.",
+    "locations": [
+      {
+        "file": "AppTests/Auth/AuthMigrationTests.swift",
+        "line": 47,
+        "message": "testMigrationPreservesRefreshToken: refresh token nil after migration"
+      },
+      {
+        "file": "App/Auth/TokenMigrator.swift",
+        "line": 31,
+        "message": "migrate() omits refresh token copy"
+      }
+    ],
+    "raw_refs": [
+      "results/test-20260808-094010.xcresult",
+      "logs/test-20260808-094010.log"
+    ]
+  },
+  "cache": {
+    "replayed": false,
+    "tree_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "attempt": {
+    "number": 2,
+    "max_total": 6,
+    "exhausted": false
+  },
+  "started_at": "2026-08-08T09:39:10Z",
+  "duration_ms": 79900,
+  "exit_code": 1,
+  "budget": {
+    "attempts_used_total": 2,
+    "wall_clock_used_seconds": 611
+  },
+  "mode": "real",
+  "profile_tiers": [
+    "lint",
+    "build",
+    "targeted",
+    "unit"
+  ]
+}

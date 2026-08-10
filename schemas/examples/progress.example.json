@@ -1,0 +1,60 @@
+{
+  "schema_version": "0.4.0",
+  "session_id": "sess_20260808_a41",
+  "run_id": "run_0042",
+  "node_id": "code_writer_auth",
+  "task": {
+    "id": "T-118",
+    "title": "Refactor authentication token storage to Keychain"
+  },
+  "created_at": "2026-08-08T09:05:00Z",
+  "updated_at": "2026-08-08T09:41:22Z",
+  "phase": "verifying",
+  "items": [
+    {
+      "id": "i1",
+      "title": "Move token persistence to KeychainStore",
+      "status": "done",
+      "evidence_ref": "vr_00913",
+      "checkpoint": {
+        "id": "cp_07",
+        "git_ref": "a1b2c3d4e5f6",
+        "description": "post-persistence-refactor"
+      }
+    },
+    {
+      "id": "i2",
+      "title": "Migrate existing UserDefaults tokens on first launch",
+      "status": "in_progress"
+    },
+    {
+      "id": "i3",
+      "title": "Update UI tests for new auth flow",
+      "status": "blocked",
+      "blocked_on": "Simulator UDID machine fact missing on this machine; UI tier cannot run"
+    }
+  ],
+  "decisions": [
+    {
+      "id": "d1",
+      "at": "2026-08-08T09:12:00Z",
+      "decision": "Keep the legacy read path for two releases",
+      "rationale": "Users upgrading from <=3.1 still have tokens in UserDefaults; deleting the read path now would sign them out"
+    }
+  ],
+  "last_checkpoint": {
+    "id": "cp_07",
+    "git_ref": "a1b2c3d4e5f6"
+  },
+  "learned": [
+    {
+      "at": "2026-08-08T09:20:00Z",
+      "fact": "SyncQueueTests/testDrainUnderLoad is flaky under simulator load; passes on rerun. Candidate for quarantine.",
+      "evidence_ref": "vr_00914"
+    },
+    {
+      "at": "2026-08-08T09:33:00Z",
+      "fact": "TokenMigrator is also invoked from the Training target's demo seeder \u2014 changes must keep the legacy read path until 4.1."
+    }
+  ]
+}

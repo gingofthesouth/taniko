@@ -1,0 +1,18 @@
+{
+  "schema_version": "0.4.0",
+  "run_id": "run_0042",
+  "seq": 17,
+  "at": "2026-08-08T09:42:00Z",
+  "node": {
+    "id": "code_writer_auth",
+    "type": "model"
+  },
+  "event": "retry",
+  "attempt": {
+    "number": 3,
+    "max": 3
+  },
+  "verify_ref": "vr_00914",
+  "detail": "Unit tier failed (refresh token dropped in migration); re-entering with compact feedback injected. This is the final budgeted attempt for this tier; next failure routes to escalate.",
+  "failure_kind": "verify_failure"
+}

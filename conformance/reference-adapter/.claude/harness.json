@@ -1,0 +1,35 @@
+{
+  "schema_version": "0.3.0",
+  "project": { "name": "reference-adapter", "description": "Minimal conforming harness for the layer contracts" },
+  "commands": {
+    "doctor": ["python3", "bin/harness", "doctor"],
+    "verify": ["python3", "bin/harness", "verify"],
+    "profiles": { "quick": ["python3", "bin/harness", "verify", "--quick"] },
+    "json_flag": "--json",
+    "no_cache_flag": "--no-cache"
+  },
+  "conformance": { "probe_file": "src/calc.py" },
+  "toolchain": [
+    {
+      "id": "python3",
+      "kind": "runtime",
+      "requirement": ">=3.10",
+      "detect": { "command": ["python3", "--version"], "version_pattern": "Python ([0-9.]+)" },
+      "remediation": "Install Python 3.10+"
+    }
+  ],
+  "sandbox": {
+    "writable": ["src/**"],
+    "read_only": ["AGENTS.md"],
+    "protected": [".claude/**", "bin/**", "tests/**"]
+  },
+  "state": { "dir": ".agent" },
+  "verify": {
+    "tiers": [
+      { "id": "static", "cost_class": "static", "command": ["python3", "bin/harness", "tier-static"], "timeout_seconds": 60, "expected_seconds": 1 },
+      { "id": "unit", "cost_class": "unit", "command": ["python3", "bin/harness", "tier-unit"], "timeout_seconds": 120, "expected_seconds": 2 }
+    ],
+    "profiles": { "quick": ["static"] },
+    "budgets": { "max_attempts_total": 5 }
+  }
+}

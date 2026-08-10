@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "deny": [
+      "Write(.claude/**)", "Write(bin/**)", "Write(tests/**)",
+      "Edit(.claude/**)", "Edit(bin/**)", "Edit(tests/**)"
+    ]
+  }
+}

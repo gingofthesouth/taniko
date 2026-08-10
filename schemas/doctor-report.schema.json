@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:taniko:schema:doctor-report:0.4.0",
+  "title": "Doctor Report",
+  "description": "Output of the environment check at session start. Doctor has two duties (0.2.0 names both): DRIFT detection — declared toolchain vs actual machine — and HEALTH checking — is the environment usable right now (simulators available, paths writable, disk sufficient, aux tools responding). Exit codes: 0 = ok or warn, 2 = drift/fail, 1 = error (doctor itself broke). Drift and failed health checks are halting conditions: the correct downstream action is a harness-update or environment-repair task, never 'proceed and hope'. Warnings are advisories and do not halt.",
+  "type": "object",
+  "required": ["schema_version", "generated_at", "status", "checks"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "status": {
+      "enum": ["ok", "warn", "drift", "error"],
+      "description": "ok: all checks passed. warn: no failures, but advisories present (exit 0). drift: at least one fail — version mismatch, missing tool, unusable resource. error: doctor could not complete."
+    },
+    "declaration": {
+      "type": "object",
+      "required": ["path", "sha256"],
+      "additionalProperties": false,
+      "description": "The harness declaration this report verified against. Optional only for harnesses that predate a committed declaration — a report without it can attest health but cannot attest drift, and conformance requires it.",
+      "properties": {
+        "path": { "type": "string" },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "kind", "status"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "description": "e.g. 'xcode', 'swiftlint', 'simulator', 'derived-data', 'disk'." },
+          "kind": {
+            "enum": ["tool", "resource", "path", "capacity", "file", "other"],
+            "description": "tool: version/presence of a declared toolchain entry. resource: discovery of a usable runtime resource (a simulator, a device). path: existence/writability. capacity: a thresholded quantity (disk, memory). file: presence of an expected artifact (e.g. generated secrets)."
+          },
+          "status": { "enum": ["pass", "warn", "fail", "error"] },
+          "requirement": { "type": "string", "description": "What was required, in the check's own terms: a version or range for tool checks, a threshold like '>=20GB' for capacity, 'writable' for path." },
+          "found": { "type": "string", "description": "What was actually found: a parsed version, a discovered simulator name+runtime, an available capacity. Never include machine-fact VALUES that are personal paths — reports may land in CI logs and issues." },
+          "detail": { "type": "string", "maxLength": 500 },
+          "remediation": { "type": "string", "maxLength": 300 }
+        }
+      }
+    },
+    "machine_facts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["key", "status"],
+        "additionalProperties": false,
+        "properties": {
+          "key": { "type": "string" },
+          "status": { "enum": ["present", "missing"] },
+          "source": { "type": "string" }
+        }
+      }
+    },
+    "summary": { "type": "string", "maxLength": 1000 }
+  }
+}

@@ -1,0 +1,259 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:taniko:schema:routing-record:0.4.0",
+  "title": "Routing Record",
+  "description": "One line of the graph execution log (JSONL, append-only, one record per event). The replayability contract: every routing decision is logged with enough context that a run can be reconstructed and a misroute diagnosed as a graph bug rather than a mystery. This log is also the raw input to the eval layer (latency, fan-out width, retry counts, escalation frequency all derive from it).",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "run_id",
+    "seq",
+    "at",
+    "node",
+    "event"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Monotonic per-run sequence number assigned by the single log writer; total order of events even when wall clocks collide."
+    },
+    "at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "node": {
+      "type": "object",
+      "required": [
+        "id",
+        "type"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "model",
+            "code",
+            "gate",
+            "fanout",
+            "join",
+            "human"
+          ],
+          "description": "code nodes exist because deterministic work (parsing, dedup, filtering) never runs through the model. gate nodes include verify gates and the adversarial verifier. human nodes are approval/escalation points."
+        },
+        "role": {
+          "enum": [
+            "producer",
+            "gate"
+          ],
+          "description": "Optional functional role, orthogonal to type. type is the execution kind (a verifier is type=model: prompted, budgeted, retried on infra failure); role marks its function (gate: its success/failure opens/blocks the run). Added in 0.4.0 so consumers can distinguish model producers from model gates without parsing reason text."
+        }
+      }
+    },
+    "event": {
+      "enum": [
+        "enter",
+        "exit",
+        "route",
+        "spawn",
+        "join",
+        "retry",
+        "escalate",
+        "rollback",
+        "fail"
+      ],
+      "description": "enter/exit bracket node execution. spawn records each child at a fan-out; join records the sync gate resolving. retry/escalate/rollback/fail are the bounded-cycle events."
+    },
+    "parent_node_id": {
+      "type": "string",
+      "description": "Set on spawn: the fan-out node that created this child."
+    },
+    "decision": {
+      "type": "object",
+      "description": "Required for event=route: which edge and why.",
+      "required": [
+        "edge_taken",
+        "reason"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "edge_taken": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "alternatives": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Edges that were available but not taken; what makes a misroute diagnosable."
+        }
+      }
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Declared on enter for model nodes. Write sets define fan-out independence: siblings spawned by the same fanout must have disjoint writes (conformance-checkable from this log). Read overlap is fine \u2014 shared reads are what the harness cache is for.",
+      "properties": {
+        "reads": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "writes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "attempt": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Required for event=retry. Semantics (defined in 0.4.0; previously ambiguous): number is the retry being issued, 1-based \u2014 the first retry after the initial attempt is number=1, and retry records run 1..max-1. Total attempts consumed at exhaustion equals max, and the escalation record/report counts that total. Every cycle carries a limit; a retry record without max is a conformance failure.",
+      "required": [
+        "number",
+        "max"
+      ],
+      "properties": {
+        "number": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "inputs_digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "sha256 over the canonical serialization of the node's input artifacts; makes replay comparisons cheap (same digest in, different route out = graph nondeterminism to investigate)."
+    },
+    "checkpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "git_ref"
+      ],
+      "description": "Present on enter (the state a rollback restores to) and on rollback (the state restored).",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "git_ref": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{7,40}$",
+          "description": "Resolved commit SHA (7-40 hex). Symbolic refs (HEAD, branch names) are forbidden: a checkpoint must be an immutable restore point, and a moving pointer makes rollback and replay meaningless. (0.4.0: pattern added after a real implementation emitted 'HEAD' and the unconstrained string permitted it.)"
+        }
+      }
+    },
+    "verify_ref": {
+      "type": "string",
+      "description": "Id of the verify-result that justified this event (e.g. the fail that triggered a retry, the pass that opened a gate)."
+    },
+    "detail": {
+      "type": "string",
+      "maxLength": 1000,
+      "description": "Free-form context, bounded."
+    },
+    "merge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target"
+      ],
+      "description": "Structured merge outcome, for join events and for exit events that conclude a merge. Added in 0.4.0: merge destinations were previously smuggled through detail as free text.",
+      "properties": {
+        "target": {
+          "type": "string",
+          "description": "Branch or ref merged into, e.g. 'graph/<run-id>/integration'."
+        },
+        "result_ref": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{7,40}$",
+          "description": "Resolved SHA of the merge result (the new tip)."
+        }
+      }
+    },
+    "failure_kind": {
+      "enum": [
+        "runner_failure",
+        "runner_timeout",
+        "scope_violation",
+        "verify_failure",
+        "gate_finding",
+        "progress_missing",
+        "merge_conflict",
+        "infra",
+        "other"
+      ],
+      "description": "Optional on fail/escalate/rollback events. Distinguishes, machine-readably, a gate doing its job (gate_finding: the adversarial verifier found a bug \u2014 desired behavior, run fails) from infrastructure failure (runner crash/timeout \u2014 retried, then escalated). Added in 0.4.0: this distinction previously lived only in free-form reason text."
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "route"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "decision"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "retry"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "attempt"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "event": {
+            "const": "spawn"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "parent_node_id"
+        ]
+      }
+    }
+  ]
+}

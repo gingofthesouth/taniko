@@ -1,0 +1,224 @@
+#!/usr/bin/env python3
+"""Reference harness: the smallest implementation satisfying the layer contracts.
+
+Commands: doctor [--json], verify [--quick] [--json] [--no-cache],
+          tier-static, tier-unit
+
+Demonstrates: tree-content verdict caching (profile-scoped keys, replay flagged),
+cost-ordered fail-fast tiers, bounded feedback, error-vs-fail discrimination,
+schema-conformant --json envelopes, gitignored state dir.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+import subprocess
+import sys
+import time
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+STATE = ROOT / ".agent"
+VERDICTS = STATE / "cache" / "verify"
+TIERS = [
+    {"id": "static", "cost_class": "static"},
+    {"id": "unit", "cost_class": "unit"},
+]
+PROFILES = {"quick": ["static"], "full": ["static", "unit"]}
+SUMMARY_MAX, DETAILS_MAX = 500, 4000
+
+
+def now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def sh(args: list[str], stdin: str | None = None) -> subprocess.CompletedProcess:
+    return subprocess.run(args, cwd=ROOT, capture_output=True, text=True, input=stdin, timeout=120)
+
+
+def tree_hash() -> str:
+    """HEAD + tracked diff + untracked file contents. Content, never time."""
+    h = hashlib.sha256()
+    h.update(sh(["git", "rev-parse", "HEAD"]).stdout.encode())
+    h.update(sh(["git", "diff", "HEAD"]).stdout.encode())
+    untracked = sorted(sh(["git", "ls-files", "--others", "--exclude-standard"]).stdout.split())
+    if untracked:
+        h.update("\n".join(untracked).encode())
+        h.update(sh(["git", "hash-object", "--stdin-paths"], stdin="\n".join(untracked)).stdout.encode())
+    return h.hexdigest()
+
+
+# ── tiers ─────────────────────────────────────────────────────────────────────
+
+def tier_static() -> dict:
+    """Compile every src file. Fail = code problem; error = tier problem."""
+    start = time.monotonic()
+    failures = []
+    for f in sorted((ROOT / "src").glob("*.py")):
+        proc = sh([sys.executable, "-m", "py_compile", str(f)])
+        if proc.returncode != 0:
+            failures.append((f, proc.stderr))
+    dur = int((time.monotonic() - start) * 1000)
+    if not failures:
+        return {"verdict": "pass", "duration_ms": dur, "detail": f"{len(list((ROOT/'src').glob('*.py')))} files compile"}
+    f, err = failures[0]
+    m = re.search(r'File "(.+?)", line (\d+)', err)
+    return {
+        "verdict": "fail", "duration_ms": dur, "detail": f"{len(failures)} file(s) fail to compile",
+        "feedback": {
+            "summary": f"{f.relative_to(ROOT)} does not compile: {err.strip().splitlines()[-1][:200]}"[:SUMMARY_MAX],
+            "details": err.strip()[-DETAILS_MAX:],
+            "locations": [{"file": str(Path(m.group(1)).relative_to(ROOT)) if m and m.group(1).startswith(str(ROOT)) else str(f.relative_to(ROOT)),
+                           "line": int(m.group(2)) if m else 1,
+                           "message": "syntax error"[:300]}],
+        },
+    }
+
+
+def tier_unit() -> dict:
+    start = time.monotonic()
+    proc = sh([sys.executable, "-m", "unittest", "discover", "-s", "tests", "-q"])
+    dur = int((time.monotonic() - start) * 1000)
+    out = proc.stdout + proc.stderr
+    m = re.search(r"Ran (\d+) tests", out)
+    total = int(m.group(1)) if m else 0
+    if proc.returncode == 0 and m:
+        return {"verdict": "pass", "duration_ms": dur, "detail": f"{total}/{total}",
+                "counts": {"tests_run": total, "passed": total, "failed": 0, "skipped": 0}}
+    if not m:
+        return {"verdict": "error", "duration_ms": dur, "detail": "unittest produced no summary",
+                "feedback": {"summary": "test runner broke (no 'Ran N tests' line) — tooling failure, not test failure"[:SUMMARY_MAX],
+                             "details": out[-DETAILS_MAX:]}}
+    fails = len(re.findall(r"^(FAIL|ERROR):", out, re.M))
+    first = re.search(r"^(FAIL|ERROR): (.+)$", out, re.M)
+    return {"verdict": "fail", "duration_ms": dur, "detail": f"{total - fails}/{total}",
+            "counts": {"tests_run": total, "passed": total - fails, "failed": fails, "skipped": 0},
+            "feedback": {"summary": (f"{fails} of {total} tests failed; first: {first.group(2)}" if first else f"{fails} test(s) failed")[:SUMMARY_MAX],
+                         "details": out[-DETAILS_MAX:]}}
+
+
+TIER_FNS = {"static": tier_static, "unit": tier_unit}
+
+
+# ── doctor ────────────────────────────────────────────────────────────────────
+
+def doctor(as_json: bool) -> int:
+    decl_path = ROOT / ".claude" / "harness.json"
+    decl_sha = hashlib.sha256(decl_path.read_bytes()).hexdigest()
+    checks = []
+    proc = sh([sys.executable, "--version"])
+    m = re.search(r"Python ([0-9.]+)", proc.stdout + proc.stderr)
+    ver = m.group(1) if m else None
+    ok = bool(ver) and tuple(map(int, ver.split(".")[:2])) >= (3, 10)
+    checks.append({"id": "python3", "kind": "tool", "status": "pass" if ok else "fail",
+                   "requirement": ">=3.10", "found": ver or "not found"})
+    git_ok = sh(["git", "rev-parse", "HEAD"]).returncode == 0
+    checks.append({"id": "git-repo", "kind": "resource", "status": "pass" if git_ok else "fail",
+                   "requirement": "a git repository with at least one commit",
+                   "found": "present" if git_ok else "absent"})
+    writable = True
+    try:
+        STATE.mkdir(exist_ok=True)
+        (STATE / ".probe").write_text("x")
+        (STATE / ".probe").unlink()
+    except OSError:
+        writable = False
+    checks.append({"id": "state-dir", "kind": "path", "status": "pass" if writable else "fail",
+                   "requirement": "writable", "found": ".agent writable" if writable else "not writable"})
+
+    failed = any(c["status"] == "fail" for c in checks)
+    status = "drift" if failed else "ok"
+    report = {"schema_version": "0.3.0", "generated_at": now(), "status": status,
+              "declaration": {"path": ".claude/harness.json", "sha256": decl_sha},
+              "checks": checks,
+              "summary": "environment healthy" if not failed else "environment unusable — repair before proceeding"}
+    if as_json:
+        print(json.dumps(report))
+    else:
+        for c in checks:
+            print(f"{c['status'].upper():<4} {c['id']}: {c.get('found', '')}")
+    return 0 if status == "ok" else 2
+
+
+# ── verify ────────────────────────────────────────────────────────────────────
+
+def verify(profile: str, no_cache: bool, as_json: bool) -> int:
+    VERDICTS.mkdir(parents=True, exist_ok=True)
+    th = tree_hash()
+    key = VERDICTS / f"{th}-{profile}.json"
+
+    if not no_cache and key.exists():
+        doc = json.loads(key.read_text())
+        recorded = doc.get("started_at")
+        doc.update(id=f"vr_{uuid.uuid4().hex[:8]}", started_at=now(), duration_ms=0,
+                   cache={"replayed": True, "tree_hash": th, "recorded_at": recorded})
+        return emit(doc, as_json, replayed=True)
+
+    stages, verdict, failed_stage, feedback = [], "pass", None, None
+    start = time.monotonic()
+    for tier in TIERS:
+        if tier["id"] not in PROFILES[profile]:
+            continue
+        outcome = TIER_FNS[tier["id"]]()
+        stages.append({"id": tier["id"], "cost_class": tier["cost_class"],
+                       "verdict": outcome["verdict"], "duration_ms": outcome["duration_ms"],
+                       **({"detail": outcome["detail"]} if outcome.get("detail") else {}),
+                       **({"counts": outcome["counts"]} if outcome.get("counts") else {})})
+        if outcome["verdict"] != "pass":
+            verdict = outcome["verdict"]           # fail or error, faithfully
+            failed_stage, feedback = tier["id"], outcome.get("feedback")
+            break                                   # fail fast
+
+    doc = {"schema_version": "0.3.0", "id": f"vr_{uuid.uuid4().hex[:8]}",
+           "target": "working tree", "verdict": verdict, "profile": profile,
+           "stages": stages,
+           "attempt": {"number": 1, "max_total": 5},
+           "started_at": now(), "duration_ms": int((time.monotonic() - start) * 1000),
+           "exit_code": 0 if verdict == "pass" else (1 if verdict == "fail" else 2),
+           "cache": {"replayed": False, "tree_hash": th}}
+    if verdict == "fail":
+        doc["failed_stage"] = failed_stage
+        doc["feedback"] = feedback or {"summary": "stage failed without feedback"}
+    key.write_text(json.dumps(doc))               # pass, fail, and error all cached
+    return emit(doc, as_json, replayed=False)
+
+
+def emit(doc: dict, as_json: bool, replayed: bool) -> int:
+    if as_json:
+        print(json.dumps(doc))
+    else:
+        tag = " (cached, tree unchanged)" if replayed else ""
+        evidence = " | ".join(f"{s['id']} {s['verdict'].upper()} {s.get('detail', '')} {s['duration_ms']}ms".strip()
+                              for s in doc["stages"])
+        print(f"VERDICT: {doc['verdict'].upper()}{tag} [profile: {doc['profile']}]")
+        print(f"evidence: {evidence}")
+        if doc.get("feedback"):
+            print(doc["feedback"]["summary"])
+    return doc["exit_code"]
+
+
+def main() -> int:
+    args = sys.argv[1:]
+    if not args:
+        print("usage: harness doctor|verify|tier-static|tier-unit", file=sys.stderr)
+        return 2
+    cmd, flags = args[0], set(args[1:])
+    if cmd == "doctor":
+        return doctor("--json" in flags)
+    if cmd == "verify":
+        return verify("quick" if "--quick" in flags else "full",
+                      "--no-cache" in flags, "--json" in flags)
+    if cmd == "tier-static":
+        return 0 if tier_static()["verdict"] == "pass" else 1
+    if cmd == "tier-unit":
+        return 0 if tier_unit()["verdict"] == "pass" else 1
+    print(f"unknown command {cmd}", file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

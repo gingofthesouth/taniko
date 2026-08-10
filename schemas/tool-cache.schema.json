@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:taniko:schema:tool-cache:0.4.0",
+  "title": "Tool Cache",
+  "description": "The observation cache. Keyed by tool + args digest; validated by content hashes of the inputs the tool observed. Invalidation is by content hash only, never by time: a file unchanged for a year is a valid hit, a file changed one second ago is a miss. A hit is served with zero model involvement and zero tool re-execution. Lives in the harness state dir (gitignored). Savings fields exist so efficiency is measured, not assumed.",
+  "type": "object",
+  "required": ["schema_version", "entries"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "entries": {
+      "type": "object",
+      "description": "Keys are '{tool}:{args_digest}' where args_digest = sha256 of the canonical JSON of the tool's arguments.",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["tool", "args_digest", "inputs", "created_at"],
+        "additionalProperties": false,
+        "properties": {
+          "tool": { "type": "string", "description": "Tool identifier, e.g. 'read_file', 'grep', 'list_dir'." },
+          "args_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "args_preview": { "type": "string", "maxLength": 300, "description": "Human-readable hint of the args (e.g. the file path) for debugging; the digest, not this, is authoritative." },
+          "inputs": {
+            "type": "object",
+            "description": "Map of observed input path -> sha256 of its content at cache time. A hit requires EVERY listed input to hash-match now. Tools observing non-file inputs record a synthetic key (e.g. 'env:PATH') with a hash of that value.",
+            "additionalProperties": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+            "minProperties": 1
+          },
+          "output": {
+            "type": "string",
+            "description": "Inline cached output. Use for small outputs; use output_ref for large ones so the cache index stays cheap to load."
+          },
+          "output_ref": {
+            "type": "string",
+            "description": "Path (relative to the state dir) of a blob file holding the cached output. Exactly one of output / output_ref should be present."
+          },
+          "token_estimate": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Estimated tokens of the output; each hit adds this to tokens_saved_total."
+          },
+          "created_at": { "type": "string", "format": "date-time" },
+          "last_hit_at": { "type": "string", "format": "date-time" },
+          "hits": { "type": "integer", "minimum": 0, "default": 0 },
+          "tokens_saved_total": { "type": "integer", "minimum": 0, "default": 0 }
+        }
+      }
+    },
+    "stats": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Rolled-up counters for the eval layer.",
+      "properties": {
+        "lookups": { "type": "integer", "minimum": 0 },
+        "hits": { "type": "integer", "minimum": 0 },
+        "misses": { "type": "integer", "minimum": 0 },
+        "tokens_saved_total": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

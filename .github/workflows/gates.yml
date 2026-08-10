@@ -1,0 +1,37 @@
+name: gates
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install jsonschema
+
+      - name: Schemas and examples validate
+        run: python3 schemas/validate.py
+
+      - name: Conformance suite self-test
+        run: python3 conformance/selftest.py
+
+      - name: Routing-log grammar lint (production fixture)
+        run: python3 conformance/loglint.py conformance/fixtures/finds-bug-run/routing.jsonl --evidence-dir conformance/fixtures/finds-bug-run
+
+      # Anti-drift guard: no living doc may hardcode a version in a title.
+      # Version truth lives in the schema $ids and the changelog; titles that
+      # repeat it drift. docs/ is exempt — those are historical records.
+      - name: No version numbers in doc titles
+        run: |
+          if grep -rEn --include='*.md' --exclude-dir=docs '^#{1,6} .*v[0-9]+\.[0-9]+\.[0-9]+' .; then
+            echo "Doc title hardcodes a version — version truth lives in schema \$ids and the changelog."
+            exit 1
+          fi

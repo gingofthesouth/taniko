@@ -1,0 +1,205 @@
+{
+  "schema_version": "0.4.0",
+  "project": {
+    "name": "acme-ios-app",
+    "description": "iOS app using the three-layer agent architecture"
+  },
+  "toolchain": [
+    {
+      "id": "xcodebuild",
+      "kind": "build-tool",
+      "requirement": "16.4",
+      "detect": {
+        "command": [
+          "xcodebuild",
+          "-version"
+        ],
+        "version_pattern": "Xcode ([0-9.]+)"
+      },
+      "remediation": "Install Xcode 16.4 from developer.apple.com and run xcode-select"
+    },
+    {
+      "id": "swift",
+      "kind": "runtime",
+      "requirement": ">=6.0 <6.2",
+      "detect": {
+        "command": [
+          "swift",
+          "--version"
+        ],
+        "version_pattern": "Swift version ([0-9.]+)"
+      }
+    },
+    {
+      "id": "node",
+      "kind": "runtime",
+      "requirement": ">=20 <21",
+      "detect": {
+        "command": [
+          "node",
+          "--version"
+        ],
+        "version_pattern": "v([0-9.]+)"
+      },
+      "remediation": "nvm install 20 && nvm use 20"
+    }
+  ],
+  "machine_facts": [
+    {
+      "key": "sandbox_root",
+      "description": "Directory in the developer's space where agent working copies live",
+      "required": true,
+      "example": "/Users/dev/agent-sandboxes"
+    },
+    {
+      "key": "simulator_udid",
+      "description": "UDID of the preferred iOS simulator for UI tests",
+      "required": false
+    }
+  ],
+  "sandbox": {
+    "writable": [
+      "Sources/**",
+      "Tests/Generated/**",
+      "${machine.sandbox_root}/**"
+    ],
+    "read_only": [
+      "Docs/**",
+      "Package.resolved"
+    ],
+    "forbidden": [
+      ".env",
+      "fastlane/keys/**"
+    ],
+    "protected": [
+      ".claude/**",
+      "Tests/Contracts/**",
+      "scripts/verify*"
+    ]
+  },
+  "hooks": {
+    "pre_tool": [
+      ".claude/hooks/pre_tool_hash.py"
+    ],
+    "post_tool": [
+      ".claude/hooks/post_tool_audit.py"
+    ]
+  },
+  "state": {
+    "dir": ".claude/memory"
+  },
+  "verify": {
+    "tiers": [
+      {
+        "id": "lint",
+        "cost_class": "static",
+        "command": [
+          "swiftlint",
+          "--strict"
+        ],
+        "timeout_seconds": 120,
+        "feedback_max_chars": 2000,
+        "expected_seconds": 1
+      },
+      {
+        "id": "build",
+        "cost_class": "build",
+        "command": [
+          "xcodebuild",
+          "build",
+          "-scheme",
+          "AcmeApp",
+          "-quiet"
+        ],
+        "timeout_seconds": 600,
+        "expected_seconds": 8
+      },
+      {
+        "id": "targeted",
+        "cost_class": "unit",
+        "command": [
+          "bin/harness",
+          "test",
+          "--changed"
+        ],
+        "timeout_seconds": 300,
+        "expected_seconds": 15,
+        "skippable": true
+      },
+      {
+        "id": "unit",
+        "cost_class": "unit",
+        "command": [
+          "xcodebuild",
+          "test",
+          "-scheme",
+          "AcmeAppUnit",
+          "-quiet"
+        ],
+        "timeout_seconds": 900,
+        "feedback_max_chars": 4000,
+        "expected_seconds": 60,
+        "flaky_reruns": 1
+      },
+      {
+        "id": "ui",
+        "cost_class": "ui",
+        "command": [
+          "xcodebuild",
+          "test",
+          "-scheme",
+          "AcmeAppUITests",
+          "-quiet"
+        ],
+        "timeout_seconds": 1800
+      }
+    ],
+    "budgets": {
+      "max_attempts_total": 6,
+      "max_attempts_per_tier": 3,
+      "max_wall_clock_seconds": 5400
+    },
+    "preconditions": [
+      {
+        "id": "secrets",
+        "command": [
+          "bash",
+          "support/scripts/generate_secrets.sh",
+          "--if-missing"
+        ],
+        "when": {
+          "file_exists": "support/scripts/generate_secrets.sh"
+        }
+      }
+    ],
+    "profiles": {
+      "quick": [
+        "lint",
+        "build",
+        "targeted"
+      ]
+    }
+  },
+  "commands": {
+    "doctor": [
+      "bin/harness",
+      "doctor"
+    ],
+    "verify": [
+      "bin/harness",
+      "verify"
+    ],
+    "profiles": {
+      "quick": [
+        "bin/harness",
+        "verify",
+        "--quick"
+      ]
+    },
+    "json_flag": "--json",
+    "no_cache_flag": "--no-cache"
+  },
+  "conformance": {
+    "probe_file": "App/Shared/Utilities/DateFormatting.swift"
+  }
+}

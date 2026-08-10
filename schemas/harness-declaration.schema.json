@@ -1,0 +1,388 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:taniko:schema:harness-declaration:0.4.0",
+  "title": "Harness Declaration",
+  "description": "The committed, per-repository declaration of what must be true: required toolchain, sandbox boundary, verify tiers, and budgets. Lives in the repo (e.g. .claude/harness.json) and changes in the same commit as the code that requires it. Contains no machine facts and no session state. Values may interpolate machine facts with ${machine.<key>}; every key so used must be listed in machine_facts.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "toolchain",
+    "sandbox",
+    "verify",
+    "commands"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Version of this schema the document conforms to.",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "commands": {
+      "type": "object",
+      "required": [
+        "doctor",
+        "verify"
+      ],
+      "additionalProperties": false,
+      "description": "How to invoke this harness, so external tooling (the conformance suite, graph orchestrators, CI) needs no adapter-specific knowledge. argv arrays relative to the repo root, no shell interpretation.",
+      "properties": {
+        "doctor": {
+          "$ref": "#/$defs/argv"
+        },
+        "verify": {
+          "$ref": "#/$defs/argv",
+          "description": "The full-profile verify invocation."
+        },
+        "profiles": {
+          "type": "object",
+          "description": "Invocation per declared profile, e.g. {\"quick\": [\"bin/harness\", \"verify\", \"--quick\"]}. Keys must match verify.profiles.",
+          "additionalProperties": {
+            "$ref": "#/$defs/argv"
+          }
+        },
+        "json_flag": {
+          "type": "string",
+          "description": "Flag appended to doctor/verify to get machine-readable output conforming to the doctor-report / verify-result schemas (e.g. \"--json\"). Omit if unsupported \u2014 conformance checks needing it will be skipped, and full conformance requires it."
+        },
+        "no_cache_flag": {
+          "type": "string",
+          "description": "Flag forcing a fresh verify run, bypassing the verdict cache."
+        }
+      }
+    },
+    "conformance": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Hints for the conformance suite only; no runtime behavior.",
+      "properties": {
+        "probe_file": {
+          "type": "string",
+          "description": "A writable source file the suite may temporarily corrupt (and restore) to prove verify fails on broken code. Must be inside sandbox.writable. Destructive checks are skipped when absent."
+        }
+      }
+    },
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        }
+      }
+    },
+    "toolchain": {
+      "type": "array",
+      "description": "Every tool whose version the code depends on. doctor checks each entry against the machine; any mismatch is drift and halts the session.",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "requirement",
+          "detect"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Stable identifier, e.g. 'swift', 'node', 'xcodebuild'.",
+            "pattern": "^[a-z0-9][a-z0-9_-]*$"
+          },
+          "kind": {
+            "enum": [
+              "runtime",
+              "build-tool",
+              "sdk",
+              "package-manager",
+              "linter",
+              "test-runner",
+              "other"
+            ]
+          },
+          "requirement": {
+            "type": "string",
+            "description": "Exact version ('5.10.1') or a range in node-semver syntax ('>=20 <21'). Exact is preferred; ranges trade reproducibility for convenience."
+          },
+          "detect": {
+            "type": "object",
+            "required": [
+              "command",
+              "version_pattern"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "command": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1,
+                "description": "argv to run, e.g. [\"swift\", \"--version\"]. No shell interpretation."
+              },
+              "version_pattern": {
+                "type": "string",
+                "description": "Regex applied to the command's stdout+stderr; capture group 1 is the found version."
+              }
+            }
+          },
+          "remediation": {
+            "type": "string",
+            "description": "Human hint for fixing a mismatch, surfaced in the doctor report."
+          }
+        }
+      }
+    },
+    "machine_facts": {
+      "type": "array",
+      "description": "Machine-specific values this declaration references but must never contain. Resolved from the per-machine config layer; doctor reports any required key that is missing.",
+      "items": {
+        "type": "object",
+        "required": [
+          "key",
+          "description"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_.-]*$"
+          },
+          "description": {
+            "type": "string"
+          },
+          "required": {
+            "type": "boolean",
+            "default": true
+          },
+          "example": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "sandbox": {
+      "type": "object",
+      "description": "The enforced boundary. Paths are repo-relative globs unless they interpolate a machine fact. Precedence when a path matches multiple lists: protected > forbidden > read_only > writable.",
+      "required": [
+        "writable"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "writable": {
+          "$ref": "#/$defs/path_list"
+        },
+        "read_only": {
+          "$ref": "#/$defs/path_list"
+        },
+        "forbidden": {
+          "$ref": "#/$defs/path_list",
+          "description": "Paths the agent may neither read nor write (secrets, credentials)."
+        },
+        "protected": {
+          "$ref": "#/$defs/path_list",
+          "description": "Loop-integrity assets: verifier scripts, test config, this declaration, hooks. Readable, but write attempts must be blocked AND audited. An agent that can edit its own exam eventually will."
+        }
+      }
+    },
+    "hooks": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "pre_tool": {
+          "$ref": "#/$defs/path_list"
+        },
+        "post_tool": {
+          "$ref": "#/$defs/path_list"
+        }
+      },
+      "description": "Deterministic interception scripts run before/after tool calls (hash checks, audit logging, output truncation). Paths should fall inside sandbox.protected."
+    },
+    "state": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "dir": {
+          "type": "string",
+          "default": ".claude/memory",
+          "description": "Directory for session state (progress, cache, checkpoints). MUST be gitignored; conformance tests verify this."
+        }
+      }
+    },
+    "verify": {
+      "type": "object",
+      "required": [
+        "tiers",
+        "budgets"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "preconditions": {
+          "type": "array",
+          "description": "Provisioning steps run before tier 0: they FIX the environment (generate a gitignored file, warm a cache) rather than judge the code, and produce no verdict. A precondition failure is an 'error' (environment), never a 'fail' (code).",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "command"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_-]*$"
+              },
+              "command": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              },
+              "when": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "file_exists": {
+                    "type": "string",
+                    "description": "Run only if this repo-relative path exists; skip silently otherwise (e.g. branches that predate a pipeline)."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "profiles": {
+          "type": "object",
+          "description": "Named tier subsets for mid-task iteration, e.g. {\"quick\": [\"lint\", \"build\", \"targeted\"]}. 'full' is reserved and always means all tiers in order \u2014 it must not be declared here. Verdict caches MUST key on profile so a subset pass can never masquerade as a full pass, and only a full pass is done-evidence.",
+          "propertyNames": {
+            "not": {
+              "const": "full"
+            }
+          },
+          "additionalProperties": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            },
+            "description": "Tier ids, a subsequence of the declared tier order."
+          }
+        },
+        "tiers": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Ordered cheapest-first. The loop runs tiers in array order and fails fast: never spend the UI-test tier on code that fails the static tier.",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "cost_class",
+              "command"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_-]*$"
+              },
+              "cost_class": {
+                "enum": [
+                  "static",
+                  "build",
+                  "unit",
+                  "integration",
+                  "ui",
+                  "expensive"
+                ],
+                "description": "Coarse cost label; array order, not this label, determines execution order."
+              },
+              "command": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1,
+                "description": "argv whose exit code is the verdict: 0 pass, non-zero fail. Determinism is a contract requirement; flaky tiers are violations."
+              },
+              "timeout_seconds": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "expected_seconds": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Measured typical warm cost. Informational: lets agents budget tier choice and lets eval spot regressions."
+              },
+              "skippable": {
+                "type": "boolean",
+                "default": false,
+                "description": "True for tiers whose applicable work is adapter-computed and may be empty (e.g. a targeted-test tier when no changed files map to tests). A legal skip is recorded as verdict 'skipped' and counts as pass for ordering."
+              },
+              "flaky_reruns": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 2,
+                "default": 0,
+                "description": "Failed-test reruns permitted at this tier. A pass rescued by a rerun MUST be disclosed in the result's flaky_passed list; undeclared retries and undisclosed flaky passes are contract violations. Nonzero values are a pragmatic bridge for suites with known flakiness (mirroring CI retry policy) \u2014 the end state is still fix or quarantine, and every flaky test also poisons verdict-cache validity.",
+                "$comment": "Capped at 2: beyond that, retrying is hiding a broken suite, not bridging one."
+              },
+              "feedback_max_chars": {
+                "type": "integer",
+                "minimum": 200,
+                "default": 4000,
+                "description": "Upper bound on feedback details re-injected into the model. Bounded feedback is a contract requirement."
+              }
+            }
+          }
+        },
+        "budgets": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "max_attempts_total": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Hard cap on verify attempts per task. Exhaustion produces an explicit failure with evidence \u2014 never a silent stop or downgraded success claim."
+            },
+            "max_attempts_per_tier": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "max_cost_usd": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "max_wall_clock_seconds": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "max_attempts_total"
+          ]
+        }
+      }
+    }
+  },
+  "$defs": {
+    "path_list": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "argv": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1
+    }
+  }
+}
