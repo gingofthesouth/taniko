@@ -80,7 +80,7 @@ adoption/install-skills.sh --tool claude --user    # your ~/.claude/skills
 | Tool | Files land in |
 |---|---|
 | claude | `.claude/skills/<name>/SKILL.md` (repo) or `~/.claude/skills/` (`--user`) |
-| copilot | `.github/instructions/<name>.instructions.md` |
+| copilot | `.github/skills/<name>/SKILL.md` — on-demand injection; Copilot also reads `.claude/skills` and `.agents/skills`, so the claude and codex/opencode modes double-cover it |
 | codex / opencode | `.agents/skills/<name>.md`, indexed in `AGENTS.md` between marker comments |
 | cursor | `.cursor/rules/<name>.mdc` |
 

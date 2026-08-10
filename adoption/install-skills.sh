@@ -10,7 +10,7 @@
 #
 # Where files land:
 #   claude    <target>/.claude/skills/<name>/SKILL.md   (--user: ~/.claude/skills/)
-#   copilot   <target>/.github/instructions/<name>.instructions.md
+#   copilot   <target>/.github/skills/<name>/SKILL.md
 #   codex     <target>/.agents/skills/<name>.md + an index section in AGENTS.md
 #   opencode  same as codex (both read AGENTS.md)
 #   cursor    <target>/.cursor/rules/<name>.mdc
@@ -107,7 +107,10 @@ install_claude() {
     for s in $SKILLS; do copy_to "$SRC/$s/SKILL.md" "$base/$s/SKILL.md"; done
 }
 install_copilot() {
-    for s in $SKILLS; do copy_to "$SRC/$s/SKILL.md" "$TARGET/.github/instructions/$s.instructions.md"; done
+    # Copilot project skills: .github/skills/<name>/SKILL.md (on-demand injection).
+    # NOT .github/instructions/*.instructions.md — that surface is always-applied
+    # and expects applyTo frontmatter these skills deliberately don't carry.
+    for s in $SKILLS; do copy_to "$SRC/$s/SKILL.md" "$TARGET/.github/skills/$s/SKILL.md"; done
 }
 install_agentsmd() { # codex and opencode share this convention
     for s in $SKILLS; do copy_to "$SRC/$s/SKILL.md" "$TARGET/.agents/skills/$s.md"; done
