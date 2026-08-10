@@ -1,50 +1,50 @@
 # Tāniko
 
-Tāniko is a Māori finger-weaving technique that produces intricate geometric borders through precise, rule-based thread paths. The name maps onto what this repository is: the threads are scoped parallel nodes, the pattern's rules are the contracts and grammar, and the woven border is the verification gate at the edge of the work.
+Tāniko is a Māori finger-weaving technique that produces intricate geometric patterns through precise, rule-based thread paths. This repository uses that name to describe what it does: the threads are independent parallel processes, the pattern's rules are the contracts, and the final border is the verification gate that checks completed work.
 
-This is the generic home of a three-layer agent architecture. The **Harness** layer makes the environment cheap to know and safe to act on: declared toolchain, doctor checks, sandbox boundary, observation and verdict caching. The **Loop** layer makes progress real: work advances only on deterministic verification evidence, never on model confidence. The **Graph** layer makes work parallel and bounded: worktree-isolated nodes with disjoint write scopes, retry budgets, and an adversarial verification gate before anything merges.
+This is the home of a three-layer agent architecture. The **Harness** layer makes the environment safe and easy to understand: you declare your tools, run health checks, set sandbox boundaries, and cache observations and results. The **Loop** layer makes real progress: work only moves forward when verification proves it's done, never based on what the model thinks it did. The **Graph** layer enables safe parallel work: each node runs in its own isolated workspace with separate write areas, retry limits are enforced, and nothing gets merged without passing verification.
 
 ## The problem
 
-Coding agents fail in predictable ways, and better prompting fixes none of them:
+Coding agents fail in predictable ways. Better prompts alone don't fix them:
 
-1. **Success by assertion.** A model's native stopping condition is plausibility: left alone, an agent stops when its output *reads* finished, and its claim of success correlates only weakly with reality.
-2. **The editable exam.** An agent that can modify its own verifier, tests, or budgets will, under enough optimization pressure, eventually do so.
-3. **Evidence that lies about itself.** A stub verdict, a cached replay, or a demo-mode document that doesn't declare itself is indistinguishable from proof of work — an entire pipeline once ran five phases "verified" while carrying nothing.
-4. **Unbounded, unobservable work.** Uncapped retries burn budgets against hard problems; parallel branches that share write paths are race conditions, not parallelism; and unlogged routing makes every misroute a mystery instead of a bug.
+1. **Success by assumption.** An agent's natural stopping point is when its output looks finished. Whether it actually succeeded has no real connection to how confident it sounds.
+2. **The agent rewrites its own rules.** An agent that can change its own verification, tests, or retry budgets will eventually do so if it helps the agent "succeed."
+3. **Evidence that hides what it is.** A quick-pass result, a reused cached result, or a test environment result that doesn't say what it is looks the same as real proof. A pipeline once ran five verification stages that all looked good, but carried nothing real.
+4. **Work nobody can see or stop.** Unlimited retries waste resources on impossible problems. Parallel work that shares write areas becomes race conditions, not real parallelism. Unlogged decisions mean every failure is a mystery, not a bug you can trace.
 
-Each of these is an observed failure, not a hypothetical — the incident record is [docs/HISTORY.md](docs/HISTORY.md).
+Each of these is a real failure we've seen, not theory. The incident record is in [docs/HISTORY.md](docs/HISTORY.md).
 
 ## How Tāniko solves it
 
-Four mechanisms, one per failure:
+Four mechanisms, one for each failure:
 
-1. **Deterministic verification gates** (the Loop contract). Verification is a command whose exit code is the verdict: cost-ordered tiers that fail fast, feedback bounded for re-injection, attempts capped with escalation. Progress advances on evidence, never on confidence.
-2. **An enforced boundary** (the Harness contract). The toolchain is declared and a `doctor` command halts on drift; the sandbox is declared and enforced *outside the model*, protecting the verifiers, tests, and the declaration itself from the agent they gate.
-3. **Self-identifying evidence** (the schemas). Every evidence document declares its own provenance — real vs demo vs stub mode, the tiers its profile actually ran, whether it is a cached replay — and a routing-log grammar lint rejects what schemas can't: illegal sequences, unclosed brackets, implausible timestamps.
-4. **Bounded, replayable parallelism** (the Graph contract). Nodes run in isolated worktrees with disjoint declared write scopes; every cycle carries an attempt limit and an escalation edge; an adversarial verifier gates every merge; every routing decision is logged for replay.
+1. **Verification that must prove itself** (the Loop contract). Verification runs as a command that returns success or failure: costs are ordered from cheapest to most expensive so failures stop fast, feedback stays limited so you can re-use it, attempts are capped and escalate if needed. Work only moves forward on real proof, never confidence.
+2. **A hard boundary nobody can cross** (the Harness contract). Your tools are declared and a `doctor` command stops if they change. The sandbox is declared and enforced outside the model itself, protecting the verifier and tests from the agent they control.
+3. **Every result says what it is** (the schemas). Every result document says where it came from: whether it's real, a test run, or a shortcut result. It says which verification tiers actually ran. The routing log has a grammar that rejects anything that doesn't make sense: impossible sequences, unclosed blocks, bad timestamps.
+4. **Parallel work that you can replay** (the Graph contract). Each process runs in its own workspace with separate write areas that can't conflict. Every cycle has a retry limit and a path for escalation. Verification gates every merge. Every routing decision is logged so you can replay the whole thing if something goes wrong.
 
-Together they close the chain: a routing log whose every citation resolves to a verify document whose counts name executed tests — "done" is traceable, artifact by artifact, from the claim down to the exit code.
+Together these close the loop: a routing log where every entry points to a verification result where the counts show which tests ran, you can trace "done" through the evidence back to the actual exit code.
 
-## Why adopt
+## Why use this
 
-- Every contract clause was cut from a real implementation's strain, never from theory, and each hard rule carries the incident that earned it.
-- Conformance is a command with an exit code, not a README claim: the suite behaviorally tests determinism, replay honesty, and that the gate actually fails on broken code — and it self-tests by catching deliberately sabotaged harnesses.
-- The repo eats its own contracts: it carries its own harness declaration and shim, and its gates run in CI.
-- Costs are measured, not promised — the adoption kit states the observed baselines.
+- Every rule came from a real system straining under real work, not from theory. Each hard rule is there because something failed without it.
+- It checks itself with commands that have exit codes, not just claims in a readme: the test suite verifies that it actually works, that replays stay honest, that the gates really stop broken code, and it tests itself by breaking harnesses on purpose and catching them.
+- The repo follows its own rules: it has its own harness declaration and test, and runs verification in CI.
+- Costs are measured and reported, not promised: the adoption kit shows real baselines.
 
-## Adopt it with your agent
+## Get started with your agent
 
-The [adoption kit](adoption/) is designed to be executed by your own coding agent under your review: four phased implementation prompts (harness+loop, graph foundations, graph gates, first real run), five review-ritual skills with a multi-tool installer, and a pinned-clone convention that keeps the judging suite outside the agent's reach. Start at [adoption/README.md](adoption/README.md).
+The [adoption kit](adoption/) is built for your coding agent to run while you watch: four phased implementation guides (harness and loop, graph basics, graph verification, first real run), five review guides with a multi-tool installer, and a system that keeps the test suite out of the agent's reach. Start at [adoption/README.md](adoption/README.md).
 
-## What's in the repo
+## What's in this repo
 
-- [CONTRACTS.md](CONTRACTS.md) — the layer contracts: what any conforming implementation must provide, and why each mechanism exists.
-- [schemas/](schemas/) — six JSON Schemas for the evidence documents the layers produce, with [examples](schemas/examples/) and [SCHEMAS.md](schemas/SCHEMAS.md) (the schema set's own documentation and changelog).
-- [conformance/](conformance/) — the suite that behaviorally tests a project's harness against the contracts, with a minimal [reference adapter](conformance/reference-adapter/) that doubles as specification-by-example.
-- [schemas/routing-log-grammar.md](schemas/routing-log-grammar.md) — sequence rules for the graph's routing log that JSON Schema cannot express, with an executable lint ([conformance/loglint.py](conformance/loglint.py)) validated against a real production log.
+- [CONTRACTS.md](CONTRACTS.md) — what each layer must provide and why each mechanism is needed.
+- [schemas/](schemas/) — six JSON Schemas for the result documents the layers create, with [examples](schemas/examples/) and [SCHEMAS.md](schemas/SCHEMAS.md) (the full schema guide and changelog).
+- [conformance/](conformance/) — the test suite that checks a harness against the requirements, with a basic [reference adapter](conformance/reference-adapter/) that shows how to build one.
+- [schemas/routing-log-grammar.md](schemas/routing-log-grammar.md) — the rules for the routing log that JSON Schema can't express, with a working tool ([conformance/loglint.py](conformance/loglint.py)) that was tested against real production logs.
 
-## Running the gates
+## Running the checks
 
 Requires Python 3.10+ and the `jsonschema` package.
 
@@ -54,12 +54,12 @@ python3 conformance/selftest.py
 python3 conformance/loglint.py conformance/fixtures/finds-bug-run/routing.jsonl --evidence-dir conformance/fixtures/finds-bug-run
 ```
 
-Or run all three through the repo's own harness front door: `bin/harness verify` (cost-ordered, fail-fast; the repo conforms to its own contracts — see [.claude/harness.json](.claude/harness.json)).
+Or run all three through the repo's own harness: `bin/harness verify` (checks cheapest first, stops on failure; the repo follows its own rules, see [.claude/harness.json](.claude/harness.json)).
 
-## Provenance
+## Origins
 
-Every schema version was cut from a real implementation's evidence, never from theory: an iOS app's agent harness and graph layer strained each draft, and only what the strain proved necessary was kept. The decision record and lessons are in [docs/HISTORY.md](docs/HISTORY.md); the original mapping exercise is [docs/STRAIN-REPORT.md](docs/STRAIN-REPORT.md).
+Every schema version came from a real system's results, not theory: an iOS app's agent and graph layer tested each draft, and only what actually proved necessary stayed in. The decision log and what we learned is in [docs/HISTORY.md](docs/HISTORY.md); the full mapping work is in [docs/STRAIN-REPORT.md](docs/STRAIN-REPORT.md).
 
 ## Version
 
-Current: v0.4.0. The next revision is deliberately frozen until real-world runs produce more evidence — the v0.5 docket lives in [docs/HISTORY.md](docs/HISTORY.md) §8.
+Current: v0.4.0. The next version is held back on purpose until real-world runs give us more evidence. The v0.5 plan is in [docs/HISTORY.md](docs/HISTORY.md) §8.
