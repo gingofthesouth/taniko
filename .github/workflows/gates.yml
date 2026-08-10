@@ -35,3 +35,31 @@ jobs:
             echo "Doc title hardcodes a version — version truth lives in schema \$ids and the changelog."
             exit 1
           fi
+
+      - name: Harness front door (repo conforms to its own contracts)
+        run: python3 bin/harness verify
+
+      - name: Installer smoke test (six modes, run-twice idempotent, exact file counts)
+        run: |
+          set -eu
+          for tool in claude copilot codex opencode cursor all; do
+            t="$(mktemp -d)"
+            ./adoption/install-skills.sh --tool "$tool" --target "$t" > /dev/null
+            ./adoption/install-skills.sh --tool "$tool" --target "$t" > /dev/null
+            case "$tool" in
+              claude)         probe="$t/.claude/skills/taniko-validate-run/SKILL.md"; expected=5 ;;
+              copilot)        probe="$t/.github/skills/taniko-validate-run/SKILL.md"; expected=5 ;;
+              codex|opencode) probe="$t/.agents/skills/taniko-validate-run.md";       expected=6 ;;
+              cursor)         probe="$t/.cursor/rules/taniko-validate-run.mdc";       expected=5 ;;
+              all)            probe="$t/.cursor/rules/taniko-validate-run.mdc";       expected=21 ;;
+            esac
+            test -f "$probe" || { echo "FAIL($tool): missing $probe"; exit 1; }
+            case "$tool" in
+              codex|opencode|all)
+                [ "$(grep -c 'taniko-skills-start' "$t/AGENTS.md")" -eq 1 ] || { echo "FAIL($tool): AGENTS.md index duplicated or missing"; exit 1; } ;;
+            esac
+            found="$(find "$t" -type f | wc -l)"
+            [ "$found" -eq "$expected" ] || { echo "FAIL($tool): expected $expected files, found $found"; exit 1; }
+            rm -rf "$t"
+          done
+          echo "installer smoke test passed: 6 modes, idempotent, exact file counts"
