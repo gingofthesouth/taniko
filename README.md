@@ -21,6 +21,8 @@ python3 conformance/selftest.py
 python3 conformance/loglint.py conformance/fixtures/finds-bug-run/routing.jsonl --evidence-dir conformance/fixtures/finds-bug-run
 ```
 
+Or run all three through the repo's own harness front door: `bin/harness verify` (cost-ordered, fail-fast; the repo conforms to its own contracts — see [.claude/harness.json](.claude/harness.json)).
+
 ## Provenance
 
 Every schema version was cut from a real implementation's evidence, never from theory: an iOS app's agent harness and graph layer strained each draft, and only what the strain proved necessary was kept. The decision record and lessons are in [docs/HISTORY.md](docs/HISTORY.md); the original mapping exercise is [docs/STRAIN-REPORT.md](docs/STRAIN-REPORT.md).

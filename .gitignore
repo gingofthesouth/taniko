@@ -2,3 +2,5 @@
 TANIKO-BOOTSTRAP-PROMPT.md
 __pycache__/
 *.pyc
+.agent/
+.claude/settings.local.json
