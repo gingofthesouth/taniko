@@ -1,5 +1,7 @@
 # Strain Report — Mapping the Origin iOS Harness onto Schema Set v0.1.0
 
+> Historical record: this report describes schema set v0.1.0 as it stood when first mapped against real code. It is preserved as evidence, not maintained as current guidance — the schemas it discusses have since evolved. Specialised terms are defined in the [glossary](GLOSSARY.md).
+
 This report records the first reality test of the schema set: taking the origin app's existing, production agent harness (`bin/harness` plus its instruction files — roughly 1,160 lines of Swift) and mapping it, feature by feature, onto the v0.1.0 schemas, which had been drafted clean-room from the contracts alone. Every mismatch found was sorted into one of three buckets:
 
 - **Schema gap** — the clean-room schema missed something real; fix the schema.

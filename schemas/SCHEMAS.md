@@ -1,41 +1,54 @@
 # Layer Schemas
 
-These six schemas are the concrete interface between the generic engine and every project-specific adapter. They make the layer contracts (see CONTRACTS.md) mechanical: an adapter conforms not by agreeing with prose but by emitting documents these schemas accept. The set is versioned together; the current version is the one in each schema's `$id` (and the top entry of the changelog below) — this document deliberately doesn't repeat the number, so it can't drift from the truth.
+These six JSON Schemas are the concrete interface between the generic engine and every project-specific adapter. They make the layer contracts in [CONTRACTS.md](../CONTRACTS.md) mechanical: an adapter conforms not by agreeing with prose but by emitting documents these schemas accept.
+
+The set is versioned together. The current version lives in each schema's `$id` and at the top of the [changelog](#changelog) — this document deliberately does not repeat the number, so it cannot drift from the truth. Terms are defined in the [glossary](../docs/GLOSSARY.md).
 
 ## The six schemas and how they relate
 
-**harness-declaration** is the one committed document — the repo's statement of what must be true (toolchain, sandbox boundary, verify tiers, budgets). Everything else is runtime output derived from or governed by it.
+**harness-declaration** is the one committed document: the repository's statement of what must be true — toolchain, sandbox boundary, verify tiers, budgets. Everything else is runtime output derived from or governed by it.
 
-**doctor-report** is produced by checking the declaration against the actual machine at session start. It carries the declaration's hash so every report is traceable to the exact declaration it verified. Status `drift` halts the session and routes to a harness-update task.
+**doctor-report** is produced when the declaration is checked against the actual machine at session start. It carries the declaration's hash, so every report traces to the exact declaration it verified. A status of `drift` halts the session and routes to a harness-update task.
 
-**progress** and **tool-cache** are session state, living in the declaration's `state.dir`, gitignored, never committed. Progress is scoped per graph node so parallel branches never share mutable state; the cache is keyed by tool + args digest and invalidated only by content hash, never by time.
+**progress** and **tool-cache** are session state. Both live in the declaration's `state.dir`, are gitignored, and are never committed. Progress is scoped per graph node, so parallel branches never share mutable state; the cache is keyed by tool + arguments digest and invalidated only by content hash, never by time.
 
-**verify-result** is the evidence envelope — the single record type by which the system knows work is done. It is referenced from two directions: progress items point at it (`evidence_ref`) to justify `status: done`, and routing records point at it (`verify_ref`) to justify retries, gate openings, and escalations. Its verdict enum has exactly three members — `pass`, `fail`, `error` — and model confidence is deliberately not one of them.
+**verify-result** is the evidence envelope — the single record type by which the system knows work is done. Two directions point at it: progress items cite it (`evidence_ref`) to justify `status: done`, and routing records cite it (`verify_ref`) to justify retries, gate openings, and escalations. Its verdict enum has exactly three members — `pass`, `fail`, `error` — and model confidence is deliberately not one of them.
 
-**routing-record** is one line of the append-only JSONL graph log. It exists for replay (same `inputs_digest` in, different route out = nondeterminism to investigate) and is the raw input to the eval layer: latency, retry counts, fan-out width, and escalation frequency all derive from it. Sibling `spawn` records under one fan-out must declare disjoint `scope.writes` — fan-out independence is checkable from this log alone.
+**routing-record** is one line of the append-only JSONL graph log. It exists for replay — same `inputs_digest` in, different route out means nondeterminism to investigate — and it is the raw input to the eval layer: latency, retry counts, fan-out width, and escalation frequency all derive from it. Sibling `spawn` records under one fan-out must declare disjoint `scope.writes`, so fan-out independence is checkable from this log alone.
 
 The reference chain, end to end: a routing `retry` cites a verify-result; the verify-result's tier and budget trace to the harness-declaration; the declaration's hash appears in the doctor-report that opened the session. Every claim in the system is one or two hops from a deterministic record.
 
 ## Design decisions worth knowing
 
-Bounded strings are load-bearing, not stylistic: every field whose content can be re-injected into model context (`feedback.summary`, `feedback.details`, `decision.reason`, `summary`) carries a `maxLength`, because unbounded feedback is how retry loops pay tokens to degrade their own attention. Producers must truncate before emitting, and truncation should keep the tail of tracebacks (where the assertion is) rather than the head.
+Bounded strings are load-bearing, not stylistic. Every field whose content can be re-injected into model context (`feedback.summary`, `feedback.details`, `decision.reason`, `summary`) carries a `maxLength`, because unbounded feedback is how retry loops pay tokens to degrade their own attention. Producers must truncate before emitting, and truncation should keep the tail of tracebacks — where the assertion is — rather than the head.
 
-`additionalProperties: false` everywhere is intentional strictness for v0: unknown fields are typos or version skew, and both should fail loudly while the schemas are young. Expect this to relax to a namespaced extension convention (e.g. an `x_` prefix or a per-adapter `ext` object) once real adapters need project-specific fields — that relaxation will be a minor version bump.
+`additionalProperties: false` everywhere is intentional strictness for v0. Unknown fields are typos or version skew, and both should fail loudly while the schemas are young. Expect this to relax to a namespaced extension convention (an `x_` prefix or a per-adapter `ext` object) once real adapters need project-specific fields; that relaxation will be a minor version bump.
 
 Doctor reports include which machine facts resolved but never their values, so reports are safe to attach to CI logs and issues even when the facts are personal paths.
 
 ## Versioning policy
 
-Schemas are versioned together as a set; the current set version lives in each schema's `$id` and the changelog. Every instance document carries `schema_version`. Semver applies from 1.0.0 onward: adding an optional field or enum member is minor; renaming/removing a field, tightening a bound, or changing exit-code semantics is major. While the set is 0.x, any release may break, and adapters should pin exactly. Adapters declare the schema-set version they target; the conformance suite for version N validates against version N's schemas, nothing looser.
+Schemas are versioned together as a set; the current set version lives in each schema's `$id` and the changelog. Every instance document carries `schema_version`.
+
+Semver applies from 1.0.0 onward:
+
+- **minor**: adding an optional field or enum member.
+- **major**: renaming or removing a field, tightening a bound, changing exit-code semantics.
+
+While the set is 0.x, any release may break, and adapters should pin exactly. Adapters declare the schema-set version they target; the conformance suite for version N validates against version N's schemas, nothing looser.
 
 ## Validating
 
-`python3 validate.py` checks every schema against JSON Schema draft 2020-12 and every example against its schema. The examples are normative in spirit: they show an iOS project (xcodebuild tiers, user-space sandbox via a `sandbox_root` machine fact) precisely because that's the first real adapter this set will be tested against.
+1. Run `python3 validate.py`.
+2. Confirm it reports `OK` for each of the six schemas and every example.
+
+It checks every schema against JSON Schema draft 2020-12 and every example against its schema. The examples are normative in spirit: they show an iOS project (xcodebuild tiers, user-space sandbox via a `sandbox_root` machine fact) precisely because that is the first real adapter this set will be tested against.
 
 ## What these schemas deliberately do not cover
 
-Graph *topology* (which nodes exist, which edges connect them) is not schematized here — only graph *execution* (the routing log). Topology definition is engine-version-specific and belongs with the engine; the log format is the stable contract because it's what replay and eval consume. Likewise, hook invocation protocol (how the engine calls pre/post tool scripts, what they receive on stdin) is an engine API, versioned with the engine, not a data schema.
+Graph *topology* — which nodes exist, which edges connect them — is not schematised here; only graph *execution* (the routing log) is. Topology definition is engine-version-specific and belongs with the engine. The log format is the stable contract because replay and eval consume it.
 
+Likewise, hook invocation protocol — how the engine calls pre/post tool scripts, what they receive on stdin — is an engine API, versioned with the engine, not a data schema.
 
 ## Changelog
 

@@ -1,6 +1,6 @@
 {
   "schema_version": "0.3.0",
-  "project": { "name": "reference-adapter", "description": "Minimal conforming harness for the layer contracts" },
+  "project": { "name": "reference-adapter", "description": "The smallest fully conforming harness for the layer contracts; read it as specification by example" },
   "commands": {
     "doctor": ["python3", "bin/harness", "doctor"],
     "verify": ["python3", "bin/harness", "verify"],

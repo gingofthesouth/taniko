@@ -1,6 +1,10 @@
 # Evidence Directory Layout (informative)
 
-The first graph-layer implementation converged on a per-run evidence layout that any adapter would otherwise reinvent differently. Documented here as the recommended convention (informative in 0.4.0; a conformance check is a candidate once a second implementation exists):
+This document records where a graph run keeps its evidence files on disk. It is *informative*, not contractual: a recommended convention rather than an enforced schema.
+
+The first graph-layer implementation converged on this layout; any adapter would otherwise reinvent it differently. A conformance check may follow once a second implementation exists.
+
+## The layout
 
 ```
 <state-dir>/graph/<run-id>/
@@ -16,4 +20,8 @@ The first graph-layer implementation converged on a per-run evidence layout that
 └── worktrees/               # live only while the run exists; reaped by clean
 ```
 
-Principles: `verify-results/` is the resolution root for G8 — every cited ref must exist there. Logs and reports are evidence and survive `clean`; worktrees and branches are state and are reaped. Preserving a failed verifier's worktree (pointed to by its report) is what made the layout's biggest catch possible: a reviewer ran one git command in a preserved worktree and found that no content had ever flowed through the pipeline.
+## The principles behind it
+
+- `verify-results/` is the resolution root for grammar rule G8: every cited evidence reference must exist there.
+- Logs and reports are **evidence** and survive `clean`; worktrees and branches are **state** and are reaped.
+- Preserving a failed verifier's worktree (pointed to by its report) is what made this layout's biggest catch possible: a reviewer ran one git command in a preserved worktree and found that no content had ever flowed through the pipeline.

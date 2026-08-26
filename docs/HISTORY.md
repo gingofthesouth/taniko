@@ -2,6 +2,8 @@
 
 This document is the project's decision record: what was built, what was decided and why, what went wrong, what was learned, and what remains. It was written as orientation for anyone joining the project — human or AI agent — and covers the period up to 9 August 2026, when the first phase of the project closed.
 
+> Historical record: sections below describe the project as it stood on the dates written. Current behaviour is defined by [CONTRACTS.md](../CONTRACTS.md), not by this document. Specialised terms are defined in the [glossary](GLOSSARY.md).
+
 > Note: when this record was moved into the Tāniko repository, references identifying the origin project — its name, organisation, ticket numbers, and internal type names — were replaced with generic equivalents, and the text was rewritten for clarity. The facts, decisions, and lessons are unchanged from the original record.
 
 A few terms used throughout:
@@ -84,11 +86,29 @@ First real numbers, for calibration:
 
 ## 6. Open backlog
 
-**Origin-app tickets:** (a) a plan-validation rule that any producer write scope touching app sources must also include the matching test directory (the existing changed-test mapper can be reused); (b) a node prompt template for creating new source files (project-file edits in scope, the add-source-file skill, and its known Xcode project hazard); (c) a static verification tier checking that changed files have test mirrors or are on an exemption list; (d) a red→green protocol in which the orchestrator itself checks for a fail-then-pass pair of verification results; (e) bypass hardening — the protected-write override flag (which an agent granted itself four or more times) and the demo-verify environment variables should require operator-level configuration an agent cannot reach, and nothing currently gates protected *commits*; (f) a secret-scanning static tier; (g) submit the merge request after human branch review, harness branch first.
+**Origin-app tickets** (letter labels kept stable — other sections cite them):
 
-**Generic repo, v0.5 candidates:** schemas for escalation reports and verifier failures (samples needed); runner transcripts in the evidence-layout document; validating a verify-result's declared profile against the declaration's tier list; attributing tests in verification counts to the node that wrote them; promoting provenance-in-failure-output from advisory to linted; wiring the grammar lint into the conformance suite's run command; per-node cost fields fed by the runner's cost cap.
+- **(a) Plan validation: no source changes without the test directory.** When a producer's write scope touches app sources, the plan must also include the matching test directory. *Why:* a verification gate whose producer never touches tests must either violate its write scope or produce tests that never run. The existing changed-file-to-test mapper can be reused.
+- **(b) A prompt template for creating new source files,** covering project-file edits in scope, the add-source-file skill, and its known Xcode project hazard. *Why:* adding a file to an Xcode target means editing the project file — a protected path — so the safe pattern must be spelled out, not improvised.
+- **(c) A static verification tier for test mirrors:** changed files must have a matching test file or sit on an explicit exemption list. *Why:* catches untested changes before anything expensive runs.
+- **(d) Orchestrator-checked red→green:** instead of trusting prompt prose, the orchestrator itself checks the evidence for a fail-then-pass pair of verification results around the new test. *Why:* told plainly to do red→green, run 5's producer skipped the failing-test step entirely (lesson 13).
+- **(e) Bypass hardening.** The protected-write override flag — which an agent granted itself four or more times — and the demo-verify environment variables must require operator-level configuration an agent cannot reach. Nothing currently gates protected *commits* at all. *Why:* rules enforced by prose get skipped; seams must be unreachable and visible (see [taniko-protect-gates] principles).
+- **(f) A secret-scanning static tier.**
+- **(g) Submit the merge request after human branch review,** harness branch first.
 
-**Still wanted from the origin app:** one real, full-pipeline `verify --json --no-cache` document and one cached-replay document — the 0.2.0 pipeline envelope has never been validated against a non-demo full run.
+**Generic repo, v0.5 candidates** — each with what it is and why it waits:
+
+- **Schemas for escalation reports and verifier-failure reports.** These are the two documents a graph emits when a node runs out of budget or a gate trips; they currently have no defined shape. Deferred from 0.4.0 because the only samples predated the report-format fixes; run 5 has since produced post-fix samples, so they can now be written from evidence.
+- **Runner transcripts in the evidence layout.** Keep what the runner printed inside the run's evidence directory, so post-mortems read one folder instead of reconstructing console history.
+- **Cross-check a verify-result's declared profile against the declaration.** A result claims a profile (e.g. `quick`); its self-declared tier list should be validated against the tiers the harness declaration actually defines, so a partial run can never present itself as more than it was.
+- **Name new tests and their author in the evidence.** Today, proof that added tests ran is only arithmetic on counts (822 → 825). Attribution would name the tests and the node that wrote them, so reviewers check named things rather than number drift.
+- **Promote provenance-in-failure-output from advisory to linted.** Failures should be required to print their run id and log paths, not merely encouraged to.
+- **Wire the grammar lint into the conformance suite's run command,** so `run.py` checks log sequence rules too, not just single records.
+- **Per-node cost fields fed by the runner's cost cap,** so each node's spend is recorded evidence instead of an estimate after the fact.
+- **Rewrite the prose `description` fields inside the six schemas for newcomer readability.** Deferred from the August 2026 documentation pass so normative artifacts change in their own reviewed commit — if this item is still open, resurface it before v0.5.
+- **Template or example adapters per product type** — iOS app, web service, CLI tool, and so on — so users can start from something shaped like their project instead of tailoring from scratch. Decision recorded August 2026: there are too many variations to ship Tāniko itself as plugins or a stock harness; it stays a framework whose users tailor their harness, loop, and graph layers while enforcing what the contracts determine must hold — deterministic verification above all. If this item is still open, resurface it before v0.5.
+
+**Still wanted from the origin app:** one real, full-pipeline `verify --json --no-cache` document and one cached-replay document — the pipeline-shaped verify-result introduced in 0.2.0 has never been validated against anything but demo runs.
 
 **Housekeeping:** move the smoke-test script under the graph support directory; create the actual generic repository, name it, and give it CI running the validation script, the conformance self-test, and the lint against the log fixture. *(Done — this repository.)*
 
@@ -118,6 +138,20 @@ Four pre-flight catches, zero improvised workarounds, and one shipped bug fix th
 17. **Warming caches is the orchestrator's job.** A cold build in a fresh worktree (~80 seconds) is deterministic work; it must never spend an agent session's timeout budget. The build now runs as ordinary pre-node work before every runner invocation, and timeouts are settable per plan (the verifier's is 1,800 seconds).
 18. **Culture propagates more slowly than code.** The agent fixing the log bug implemented the corrected diagnosis without re-verifying it against the log — it swapped narratives on command. Separately, an agent's claim that "provisioning was tightened" took a human grep to confirm it actually meant "provisioned" (it did). The maturity signal to watch for in agent reports is citation of artifacts, not confidence of prose.
 
-**The v0.5 docket** (every item cites a run or commit): add `progress_invalid` to the failure-kind enum (the missing-versus-malformed distinction proved useful); align failure-kind spellings (fixed in the origin app; the schema description should note it); lint denominators and the zero-citations warning (lesson 16); persist verifier and node evidence independently of whether the runner stays alive — link the worktree-cache verification documents on every failure path (partially fixed in the origin app; the schema and layout doc should state it); add runner transcripts to the evidence layout; use repository-relative paths in routing details; schemas for escalation reports and verifier failures (run 5 finally produced post-fix samples); attribute tests in verification counts to their author-node (executed evidence is currently proven only by count deltas — 822 to 825 — attribution would name the tests); wire the runner's cost-cap flag to plan budgets. **v0.5 is held until a few real-ticket runs land** — the same evidence standard 0.4.0 was built to.
+**The v0.5 docket** — recorded at project close-out (9 August 2026); every item traces to a run or commit:
+
+| Item | What it means in practice | Earned from |
+| --- | --- | --- |
+| Add `progress_invalid` to the failure-kind enum | Tell "the progress file was missing" apart from "the progress file was malformed" instead of lumping both into one failure kind | The distinction proved useful during diagnosis |
+| Align failure-kind spellings | One canonical spelling per kind; fixed in the origin app — the schema description should note it | Fixed in the origin app |
+| Lint denominators and the zero-citations warning | Lint output must say what it actually checked ("3 of 3 refs resolved"), never a bare "resolves"; a gate citing zero evidence warns instead of passing | Lesson 16 — our own lint once printed "evidence resolves" having checked zero references |
+| Persist verifier and node evidence independently of the runner's lifetime | A crash or timeout must not take the evidence with it — link the worktree-cache verification documents on every failure path | Partially fixed in the origin app; the schema and layout docs should state it |
+| Runner transcripts in the evidence layout | Record the runner's console output inside the run's evidence directory | Post-mortems currently reconstruct console history by hand |
+| Repository-relative paths in routing details | Log entries reference files relative to the repo root, so logs stay readable across machines | Replay ergonomics |
+| Schemas for escalation reports and verifier failures | Define the two report documents emitted on budget exhaustion and gate trips | Run 5 finally produced post-fix samples |
+| Name new tests and their author-node in verify counts | Proof that added tests ran is currently only a rising count (822 → 825); attribution names the tests and who wrote them | The count-delta weakness observed in run 5 |
+| Wire the runner's cost-cap flag to plan budgets | Each node's spending limit becomes enforced configuration rather than an unused flag | Measured baseline §5 |
+
+**v0.5 is held until a few real-ticket runs land** — the same evidence standard 0.4.0 was built to.
 
 **Where the project stands** (close of 9 August 2026): The location-lookup fix is landed and pushed — a graph-produced, adversarially tested bug fix, shipped to the product. Still to verify: whether the verifier branch's three tests landed with it or need cherry-picking from run 5's verifier branch before that run is cleaned up. Remaining work: update and submit the merge request (its "no real agent sessions" caveat is now false in the best way); merge in order, harness branch then graph branch; clean up run 5; create the Tāniko repository from the 0.4.0 bundle *(done — this repository)*; then put real tickets through the graph. The first genuine two-producer fan-out is both the next validation and the point of the whole machine.
