@@ -1,0 +1,233 @@
+#!/usr/bin/env -S uv run --quiet --script
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["jsonschema"]
+# ///
+"""Tāniko's own harness shim: the repo that ships the contracts is judged by them.
+
+Commands: doctor [--json], verify [--json],
+          tier-validate, tier-loglint-fixture, tier-selftest
+
+The gates themselves live in schemas/ and conformance/ (protected paths); this
+shim only sequences them cost-ordered and fail-fast and wraps the outcome in
+schema-conformant envelopes (doctor-report, verify-result; mode "real").
+There is no verdict cache: the full pipeline is ~10 s at this scale, below the
+payoff threshold — which is why the declaration omits no_cache_flag.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+import subprocess
+import sys
+import time
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+DECL_PATH = ROOT / ".claude" / "harness.json"
+STATE = ROOT / ".agent"
+FIXTURE = "conformance/fixtures/finds-bug-run"
+TIERS = [  # mirrors the declaration's verify.tiers; the declaration is the external authority
+    {"id": "validate", "cost_class": "static",
+     "argv": ["schemas/validate.py"], "timeout": 120},
+    {"id": "loglint-fixture", "cost_class": "static",
+     "argv": ["conformance/loglint.py", f"{FIXTURE}/routing.jsonl", "--evidence-dir", FIXTURE],
+     "timeout": 60},
+    {"id": "selftest", "cost_class": "unit",
+     "argv": ["conformance/selftest.py"], "timeout": 600},
+]
+MAX_ATTEMPTS = 3
+SUMMARY_MAX, DETAILS_MAX, DETAIL_MAX = 500, 4000, 200
+
+
+def now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def sh(args: list[str], stdin: str | None = None, timeout: int = 120) -> subprocess.CompletedProcess:
+    return subprocess.run(args, cwd=ROOT, capture_output=True, text=True, input=stdin, timeout=timeout)
+
+
+def tree_hash() -> str:
+    """HEAD + tracked diff + untracked file contents. Content, never time."""
+    h = hashlib.sha256()
+    h.update(sh(["git", "rev-parse", "HEAD"]).stdout.encode())
+    h.update(sh(["git", "diff", "HEAD"]).stdout.encode())
+    untracked = sorted(sh(["git", "ls-files", "--others", "--exclude-standard"]).stdout.split())
+    if untracked:
+        h.update("\n".join(untracked).encode())
+        h.update(sh(["git", "hash-object", "--stdin-paths"], stdin="\n".join(untracked)).stdout.encode())
+    return h.hexdigest()
+
+
+# ── doctor ────────────────────────────────────────────────────────────────────
+
+def _version_meets(found: str, requirement: str) -> bool:
+    req = requirement.strip()
+    if req.startswith(">="):
+        want = tuple(int(x) for x in req[2:].strip().split("."))
+        have = tuple(int(x) for x in re.findall(r"\d+", found))[: len(want)]
+        return have >= want
+    return found == req
+
+
+def doctor(as_json: bool) -> int:
+    checks = []
+    declaration = json.loads(DECL_PATH.read_text())
+    decl_sha = hashlib.sha256(DECL_PATH.read_bytes()).hexdigest()
+
+    # Drift: every declared toolchain entry, checked against this machine.
+    for entry in declaration["toolchain"]:
+        try:
+            proc = sh(entry["detect"]["command"])
+            m = re.search(entry["detect"]["version_pattern"], proc.stdout + proc.stderr)
+        except (OSError, subprocess.SubprocessError):
+            m = None
+        found = m.group(1) if m else "not found"
+        ok = bool(m) and _version_meets(found, entry["requirement"])
+        checks.append({"id": entry["id"], "kind": "tool",
+                       "status": "pass" if ok else "fail",
+                       "requirement": entry["requirement"], "found": found,
+                       **({"remediation": entry["remediation"][:300]} if not ok and entry.get("remediation") else {})})
+
+    # Health: jsonschema importable by the interpreter that will run the gates.
+    try:
+        from importlib.metadata import version
+        js_ver = version("jsonschema")
+        checks.append({"id": "jsonschema", "kind": "resource", "status": "pass",
+                       "requirement": "importable by the gate interpreter", "found": js_ver})
+    except Exception:
+        checks.append({"id": "jsonschema", "kind": "resource", "status": "fail",
+                       "requirement": "importable by the gate interpreter", "found": "not importable",
+                       "remediation": "Run ./bin/harness (uv supplies it) or pip install jsonschema"})
+
+    # Health: a git repository with history (tree hashing and checkpoints need it).
+    git_ok = sh(["git", "rev-parse", "HEAD"]).returncode == 0
+    checks.append({"id": "git-repo", "kind": "resource", "status": "pass" if git_ok else "fail",
+                   "requirement": "a git repository with at least one commit",
+                   "found": "present" if git_ok else "absent"})
+
+    # Health: state dir writable.
+    writable = True
+    try:
+        STATE.mkdir(exist_ok=True)
+        (STATE / ".probe").write_text("x")
+        (STATE / ".probe").unlink()
+    except OSError:
+        writable = False
+    checks.append({"id": "state-dir", "kind": "path", "status": "pass" if writable else "fail",
+                   "requirement": "writable", "found": ".agent writable" if writable else "not writable"})
+
+    failed = any(c["status"] == "fail" for c in checks)
+    status = "drift" if failed else ("warn" if any(c["status"] == "warn" for c in checks) else "ok")
+    report = {"schema_version": "0.4.0", "generated_at": now(), "status": status,
+              "declaration": {"path": ".claude/harness.json", "sha256": decl_sha},
+              "checks": checks,
+              "summary": "environment healthy, no drift" if not failed
+                         else "drift or failed health — repair before proceeding"}
+    if as_json:
+        print(json.dumps(report))
+    else:
+        for c in checks:
+            print(f"{c['status'].upper():<4} {c['id']}: {c['found']} (require {c['requirement']})")
+    return 2 if failed else 0
+
+
+# ── verify ────────────────────────────────────────────────────────────────────
+
+def _run_tier(tier: dict) -> dict:
+    start = time.monotonic()
+    try:
+        proc = sh([sys.executable, *tier["argv"]], timeout=tier["timeout"])
+    except subprocess.TimeoutExpired:
+        return {"verdict": "error", "duration_ms": int((time.monotonic() - start) * 1000),
+                "feedback": {"summary": f"{tier['id']} exceeded its {tier['timeout']}s timeout — tier problem, not code problem"[:SUMMARY_MAX]}}
+    dur = int((time.monotonic() - start) * 1000)
+    out = (proc.stdout + proc.stderr).strip()
+    lines = [l for l in out.splitlines() if l.strip()]
+    last = lines[-1] if lines else "(no output)"
+    if proc.returncode == 0:
+        return {"verdict": "pass", "duration_ms": dur, "detail": last[:DETAIL_MAX]}
+    return {"verdict": "fail", "duration_ms": dur, "detail": f"exit {proc.returncode}"[:DETAIL_MAX],
+            "feedback": {"summary": f"{tier['id']}: {last}"[:SUMMARY_MAX], "details": out[-DETAILS_MAX:]}}
+
+
+def _attempts(th: str) -> int:
+    try:
+        st = json.loads((STATE / "attempts.json").read_text())
+        return st["attempts"] if st.get("tree_hash") == th else 0
+    except (OSError, ValueError, KeyError):
+        return 0
+
+
+def _save_attempts(th: str, n: int) -> None:
+    STATE.mkdir(exist_ok=True)
+    (STATE / "attempts.json").write_text(json.dumps({"tree_hash": th, "attempts": n}))
+
+
+def verify(as_json: bool) -> int:
+    th = tree_hash()
+    number = _attempts(th) + 1
+    stages, verdict, failed_stage, feedback = [], "pass", None, None
+    start = time.monotonic()
+    for tier in TIERS:
+        outcome = _run_tier(tier)
+        stages.append({"id": tier["id"], "cost_class": tier["cost_class"],
+                       "verdict": outcome["verdict"], "duration_ms": outcome["duration_ms"],
+                       **({"detail": outcome["detail"]} if outcome.get("detail") else {})})
+        if outcome["verdict"] != "pass":
+            verdict = outcome["verdict"]
+            failed_stage, feedback = tier["id"], outcome.get("feedback")
+            break  # fail fast
+    _save_attempts(th, 0 if verdict == "pass" else number)
+
+    doc = {"schema_version": "0.4.0", "id": f"vr_{uuid.uuid4().hex[:8]}",
+           "target": "repository gates (working tree)", "verdict": verdict,
+           "profile": "full", "profile_tiers": [t["id"] for t in TIERS],
+           "stages": stages, "mode": "real",
+           "attempt": {"number": number, "max_total": MAX_ATTEMPTS,
+                       **({"exhausted": True} if verdict == "fail" and number >= MAX_ATTEMPTS else {})},
+           "started_at": now(), "duration_ms": int((time.monotonic() - start) * 1000),
+           "exit_code": 0 if verdict == "pass" else (1 if verdict == "fail" else 2)}
+    if verdict == "fail":
+        doc["failed_stage"] = failed_stage
+        doc["feedback"] = feedback or {"summary": "stage failed without feedback"}
+
+    if as_json:
+        print(json.dumps(doc))
+    else:
+        evidence = " | ".join(f"{s['id']} {s['verdict'].upper()} {s['duration_ms']}ms" for s in stages)
+        print(f"VERDICT: {verdict.upper()} [profile: full, attempt {number}/{MAX_ATTEMPTS}]")
+        print(f"evidence: {evidence}")
+        if doc.get("feedback"):
+            print(doc["feedback"]["summary"])
+    return doc["exit_code"]
+
+
+def main() -> int:
+    args = sys.argv[1:]
+    if not args:
+        print("usage: harness doctor|verify|tier-validate|tier-loglint-fixture|tier-selftest [--json]", file=sys.stderr)
+        return 2
+    cmd, flags = args[0], set(args[1:])
+    if cmd == "doctor":
+        try:
+            return doctor("--json" in flags)
+        except Exception as e:  # noqa: BLE001 — doctor itself broke: contract exit 1
+            print(f"doctor error: {e}", file=sys.stderr)
+            return 1
+    if cmd == "verify":
+        return verify("--json" in flags)
+    for tier in TIERS:
+        if cmd == f"tier-{tier['id']}":
+            return 0 if _run_tier(tier)["verdict"] == "pass" else 1
+    print(f"unknown command {cmd}", file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

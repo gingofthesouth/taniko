@@ -1,0 +1,59 @@
+{
+  "schema_version": "0.4.0",
+  "project": {
+    "name": "taniko",
+    "description": "The layer-contracts repository, conforming to its own contracts: the gates it ships judge the repo that ships them."
+  },
+  "commands": {
+    "doctor": ["bin/harness", "doctor"],
+    "verify": ["bin/harness", "verify"],
+    "json_flag": "--json"
+  },
+  "toolchain": [
+    {
+      "id": "python3",
+      "kind": "runtime",
+      "requirement": ">=3.10",
+      "detect": { "command": ["python3", "--version"], "version_pattern": "Python ([0-9.]+)" },
+      "remediation": "Install Python 3.10+. Gate dependencies (jsonschema) are supplied by uv via bin/harness's inline script metadata; without uv, pip install jsonschema and run python3 bin/harness."
+    },
+    {
+      "id": "git",
+      "kind": "other",
+      "requirement": ">=2.30",
+      "detect": { "command": ["git", "--version"], "version_pattern": "git version ([0-9.]+)" },
+      "remediation": "Install git 2.30+"
+    }
+  ],
+  "sandbox": {
+    "writable": ["docs/**", "adoption/**", "README.md"],
+    "protected": [".claude/**", "schemas/*.schema.json", "conformance/**", ".github/**"]
+  },
+  "state": { "dir": ".agent" },
+  "verify": {
+    "tiers": [
+      {
+        "id": "validate",
+        "cost_class": "static",
+        "command": ["bin/harness", "tier-validate"],
+        "timeout_seconds": 120,
+        "expected_seconds": 1
+      },
+      {
+        "id": "loglint-fixture",
+        "cost_class": "static",
+        "command": ["bin/harness", "tier-loglint-fixture"],
+        "timeout_seconds": 60,
+        "expected_seconds": 1
+      },
+      {
+        "id": "selftest",
+        "cost_class": "unit",
+        "command": ["bin/harness", "tier-selftest"],
+        "timeout_seconds": 600,
+        "expected_seconds": 8
+      }
+    ],
+    "budgets": { "max_attempts_total": 3 }
+  }
+}

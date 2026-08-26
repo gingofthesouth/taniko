@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "deny": [
+      "Write(.claude/**)", "Edit(.claude/**)",
+      "Write(schemas/*.schema.json)", "Edit(schemas/*.schema.json)",
+      "Write(conformance/**)", "Edit(conformance/**)",
+      "Write(.github/**)", "Edit(.github/**)"
+    ]
+  }
+}

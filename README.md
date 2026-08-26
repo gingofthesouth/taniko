@@ -1,37 +1,53 @@
 # Tāniko
 
-Tāniko is a specification and test suite for running AI coding agents on real work without trusting their word for anything. It defines a three-layer architecture — **harness**, **loop**, and **graph** — and ships the contracts, data schemas, and executable checks you need to build your own conforming system.
+Tāniko is a Māori finger-weaving technique that produces intricate geometric patterns through precise, rule-based thread paths. This repository uses that name to describe what it does: the threads are independent parallel processes, the pattern's rules are the contracts, and the final border is the verification gate that checks completed work.
 
-The name comes from te reo Māori: tāniko weaving produces intricate geometric borders through precise, rule-based thread paths. The mapping is exact. The threads are parallel work items, the rules are the contracts and grammar in this repository, and the woven border is verification at the edge of the work.
+This is the home of a three-layer agent architecture. The **Harness** layer makes the environment safe and easy to understand: you declare your tools, run health checks, set sandbox boundaries, and cache observations and results. The **Loop** layer makes real progress: work only moves forward when verification proves it's done, never based on what the model thinks it did. The **Graph** layer enables safe parallel work: each node runs in its own isolated workspace with separate write areas, retry limits are enforced, and nothing gets merged without passing verification.
 
 Unfamiliar term? The [glossary](docs/GLOSSARY.md) defines every specialised word used here.
 
-## The three layers
+## The problem
 
-Each layer answers one question:
+Coding agents fail in predictable ways. Better prompts alone don't fix them:
 
-- **Harness** — *is the environment known and safe?* It declares the required toolchain, checks the machine against that declaration (`doctor`), fences off what the agent may write, remembers state between turns, and caches observations so they are paid for once. See [CONTRACTS.md](CONTRACTS.md) §1.
-- **Loop** — *is the progress real?* Work counts as done only when a deterministic verification command exits 0 — never because the model sounded confident. Retries are bounded, failure feedback is compact, and verdicts are cached against the code's content. See [CONTRACTS.md](CONTRACTS.md) §2.
-- **Graph** — *is the work parallel and contained?* Independent tasks run as isolated nodes in separate git worktrees with disjoint write scopes, every cycle has an attempt limit, and an adversarial verifier tries to break each result before it merges. See [CONTRACTS.md](CONTRACTS.md) §3.
+1. **Success by assumption.** An agent's natural stopping point is when its output looks finished. Whether it actually succeeded has no real connection to how confident it sounds.
+2. **The agent rewrites its own rules.** An agent that can change its own verification, tests, or retry budgets will eventually do so if it helps the agent "succeed."
+3. **Evidence that hides what it is.** A quick-pass result, a reused cached result, or a test environment result that doesn't say what it is looks the same as real proof. A pipeline once ran five verification stages that all looked good, but carried nothing real.
+4. **Work nobody can see or stop.** Unlimited retries waste resources on impossible problems. Parallel work that shares write areas becomes race conditions, not real parallelism. Unlogged decisions mean every failure is a mystery, not a bug you can trace.
 
-The whole design serves three goals: accuracy (never report success without deterministic evidence), efficiency (never re-observe what is already known), and latency (independent work runs concurrently, deterministic work never touches the model).
+Each of these is a real failure we've seen, not theory. The incident record is in [docs/HISTORY.md](docs/HISTORY.md).
 
-## Start here
+## How Tāniko solves it
 
-- New to the ideas? Read [CONTRACTS.md](CONTRACTS.md) — its opening states the goals, and each layer explains why it exists before what it requires.
-- Building a conforming harness? Read the [schema documentation](schemas/SCHEMAS.md), then the [reference adapter](conformance/reference-adapter/) — a minimal working harness you can copy from.
-- Checking whether a project conforms? Run the [conformance suite](conformance/README.md).
-- Curious why anything is the way it is? Every decision traces to evidence: see [docs/HISTORY.md](docs/HISTORY.md).
+Four mechanisms, one for each failure:
 
-## What's in the repository
+1. **Verification that must prove itself** (the Loop contract). Verification runs as a command that returns success or failure: costs are ordered from cheapest to most expensive so failures stop fast, feedback stays limited so you can re-use it, attempts are capped and escalate if needed. Work only moves forward on real proof, never confidence.
+2. **A hard boundary nobody can cross** (the Harness contract). Your tools are declared and a `doctor` command stops if they change. The sandbox is declared and enforced outside the model itself, protecting the verifier and tests from the agent they control.
+3. **Every result says what it is** (the schemas). Every result document says where it came from: whether it's real, a test run, or a shortcut result. It says which verification tiers actually ran. The routing log has a grammar that rejects anything that doesn't make sense: impossible sequences, unclosed blocks, bad timestamps.
+4. **Parallel work that you can replay** (the Graph contract). Each process runs in its own workspace with separate write areas that can't conflict. Every cycle has a retry limit and a path for escalation. Verification gates every merge. Every routing decision is logged so you can replay the whole thing if something goes wrong.
 
-- [CONTRACTS.md](CONTRACTS.md) — the layer contracts: what any conforming implementation must provide, and why each mechanism exists.
-- [schemas/](schemas/) — six JSON Schemas for the evidence documents the layers produce, with examples in [schemas/examples/](schemas/examples/) and documentation plus changelog in [SCHEMAS.md](schemas/SCHEMAS.md).
-- [conformance/](conformance/) — the suite that behaviourally tests a project's harness against the contracts, including the [reference adapter](conformance/reference-adapter/), which doubles as specification-by-example.
-- [schemas/routing-log-grammar.md](schemas/routing-log-grammar.md) — sequence rules for the graph's routing log that JSON Schema cannot express, with an executable lint ([conformance/loglint.py](conformance/loglint.py)) validated against a real production log.
+Together these close the loop: a routing log where every entry points to a verification result where the counts show which tests ran, you can trace "done" through the evidence back to the actual exit code.
+
+## Why use this
+
+- Every rule came from a real system straining under real work, not from theory. Each hard rule is there because something failed without it.
+- It checks itself with commands that have exit codes, not just claims in a readme: the test suite verifies that it actually works, that replays stay honest, that the gates really stop broken code, and it tests itself by breaking harnesses on purpose and catching them.
+- The repo follows its own rules: it has its own harness declaration and test, and runs verification in CI.
+- Costs are measured and reported, not promised: the adoption kit shows real baselines.
+
+## Get started with your agent
+
+The [adoption kit](adoption/) is built for your coding agent to run while you watch: four phased implementation guides (harness and loop, graph basics, graph verification, first real run), five review guides with a multi-tool installer, and a system that keeps the test suite out of the agent's reach. Start at [adoption/README.md](adoption/README.md).
+
+## What's in this repo
+
+- [CONTRACTS.md](CONTRACTS.md) — what each layer must provide and why each mechanism is needed.
+- [schemas/](schemas/) — six JSON Schemas for the result documents the layers create, with [examples](schemas/examples/) and [SCHEMAS.md](schemas/SCHEMAS.md) (the full schema guide and changelog).
+- [conformance/](conformance/) — the test suite that checks a harness against the requirements, with a basic [reference adapter](conformance/reference-adapter/) that shows how to build one.
+- [schemas/routing-log-grammar.md](schemas/routing-log-grammar.md) — the rules for the routing log that JSON Schema can't express, with a working tool ([conformance/loglint.py](conformance/loglint.py)) that was tested against real production logs.
 - [docs/GLOSSARY.md](docs/GLOSSARY.md) — plain-language definitions of every term used above.
 
-## Running the gates
+## Running the checks
 
 Requires Python 3.10+ and the `jsonschema` package. Three commands, all of which should pass:
 
@@ -41,12 +57,12 @@ python3 conformance/selftest.py
 python3 conformance/loglint.py conformance/fixtures/finds-bug-run/routing.jsonl --evidence-dir conformance/fixtures/finds-bug-run
 ```
 
-Expected results, in order: every schema reports `OK`; the self-test reports `SELFTEST: PASS` after showing one conforming run and three caught violations; the lint reports `LOGLINT PASS`. CI runs the same three on every push.
+Expected results, in order: every schema reports `OK`; the self-test reports `SELFTEST: PASS` after showing one conforming run and three caught violations; the lint reports `LOGLINT PASS`. Or run all three through the repo's own harness: `bin/harness verify` (checks cheapest first, stops on failure; the repo follows its own rules, see [.claude/harness.json](.claude/harness.json)).
 
-## Where this came from
+## Origins
 
-Every schema version was cut from a real implementation's evidence, never from theory. An iOS app's agent harness and graph layer strained each draft, and only what the strain proved necessary was kept. The decision record and lessons are in [docs/HISTORY.md](docs/HISTORY.md); the original mapping exercise is [docs/STRAIN-REPORT.md](docs/STRAIN-REPORT.md); the disposition of every finding from the graph build is in [docs/RESOLUTIONS-0.4.0.md](docs/RESOLUTIONS-0.4.0.md).
+Every schema version came from a real system's results, not theory: an iOS app's agent and graph layer tested each draft, and only what actually proved necessary stayed in. The decision log and what we learned is in [docs/HISTORY.md](docs/HISTORY.md); the full mapping work is in [docs/STRAIN-REPORT.md](docs/STRAIN-REPORT.md); the disposition of every finding from the graph build is in [docs/RESOLUTIONS-0.4.0.md](docs/RESOLUTIONS-0.4.0.md).
 
 ## Version
 
-Current: v0.4.0. The next revision is deliberately frozen until real-world runs produce more evidence — the v0.5 docket lives in [docs/HISTORY.md](docs/HISTORY.md) §7.
+Current: v0.4.0. The next version is held back on purpose until real-world runs give us more evidence. The v0.5 plan is in [docs/HISTORY.md](docs/HISTORY.md) §7.
