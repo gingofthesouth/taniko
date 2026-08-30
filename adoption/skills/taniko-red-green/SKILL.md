@@ -29,7 +29,7 @@ scope — a plan whose producer touches source without including (or creating)
 its test surface is invalid before it runs. A gate forced to improvise its
 evidence surface has exactly two outcomes, both failures: it violates its
 write scope, or it produces evidence that exists but never executes.
-*Earned: smoke-test targets were picked twice BECAUSE they lacked tests —
+*Earned: smoke-test targets were picked twice *because* they lacked tests —
 and the verifier, write-scoped to the test directory, could not add files to
 the build target; its only options were violating scope or a dead-code test.*
 

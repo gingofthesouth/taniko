@@ -1,5 +1,7 @@
 # v0.4.0 Resolutions
 
+> Historical record: this document disposes of findings against schema set v0.3.0; it is preserved as evidence of how v0.4.0 was formed, not maintained as current guidance. Specialised terms are defined in the [glossary](GLOSSARY.md).
+
 This document is the disposition of every strain finding from the first graph-layer implementation (the origin app's, built August 2026). A strain finding is a mismatch discovered when real code is mapped onto the generic schemas; each finding recorded here is resolved in one of four ways — a schema change, a new companion artifact, an advisory note, or an explicit deferral with reasons. Nothing is silently dropped.
 
 > Note: when this document was moved into the Tāniko repository, references identifying the origin project were replaced with generic equivalents, and the text was rewritten for clarity. The findings and their dispositions are unchanged.

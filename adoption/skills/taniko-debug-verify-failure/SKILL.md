@@ -30,12 +30,12 @@ a different run's log and nearly diagnosed fabricated evidence.*
 Timeout errors deserve one extra question: **is the timeout downstream of
 the real cause?**
 *Earned: a verifier's 900 s timeout headline turned out to be a retry's
-fresh session hitting a provisioning gap from the previous attempt — the
+fresh session hitting a provisioning gap from the previous attempt. The
 real root cause was two steps upstream of the loudest symptom. Two related
 mechanics: undrained subprocess pipes turned instant exits into 900 s
-timeouts (drain stdout and stderr concurrently while waiting), and a cold
-build in a fresh worktree (~80 s) is deterministic pre-work the orchestrator
-must run before the session, never inside the agent's timeout budget.*
+timeouts — drain stdout and stderr concurrently while waiting. And a cold
+build in a fresh worktree (~80 s) is deterministic pre-work: the orchestrator
+runs it before the session, never inside the agent's timeout budget.*
 
 ## 3. Search the retained evidence — don't read it
 
